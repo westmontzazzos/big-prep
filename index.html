@@ -160,6 +160,8 @@ let activeLoc = null;
 let session = null;      // {id, week_label, counter_name, counts, status}
 let openCat = null;
 let saveTimer = null;
+let testMode = false;    // when true, nothing is read from or written to Supabase
+const testSessions = {westmont:null, darien:null}; // in-memory only, lost on refresh
 const app = document.getElementById('app');
 
 function defaultWeekLabel(){
@@ -201,15 +203,24 @@ async function showHome(){
             <div class="LCard-status" id="status-${lk}">checking…</div>
           </div>`).join('')}
       </div>
+      <button class="B ${testMode?'B-red':'B-outline'}" id="bTestMode" style="margin-top:8px;">
+        🧪 Test Mode: ${testMode?'ON — nothing saves':'OFF'}
+      </button>
     </div>`;
   document.querySelectorAll('.LCard[data-lk]').forEach(el=>{
     el.onclick=()=>openLocation(el.dataset.lk);
   });
+  document.getElementById('bTestMode').onclick=()=>{ testMode=!testMode; showHome(); };
   // fetch status for each location
   for(const lk of Object.keys(LOCATIONS)){
-    const {data}=await sb.from(TABLE).select('*').eq('location',lk).eq('status','in_progress').order('started_at',{ascending:false}).limit(1);
     const el=document.getElementById('status-'+lk);
     if(!el) return;
+    if(testMode){
+      el.textContent = testSessions[lk] ? '🧪 Test in progress — '+testSessions[lk].week_label : '🧪 No test count started';
+      if(testSessions[lk]) el.classList.add('active');
+      continue;
+    }
+    const {data}=await sb.from(TABLE).select('*').eq('location',lk).eq('status','in_progress').order('started_at',{ascending:false}).limit(1);
     if(data && data.length){
       el.textContent='In progress — '+data[0].week_label;
       el.classList.add('active');
@@ -221,6 +232,11 @@ async function showHome(){
 
 async function openLocation(lk){
   activeLoc=lk;
+  if(testMode){
+    if(testSessions[lk]){ session=testSessions[lk]; openCat=CATEGORIES[0].name; showCount(); }
+    else showSetupModal(lk);
+    return;
+  }
   const {data}=await sb.from(TABLE).select('*').eq('location',lk).eq('status','in_progress').order('started_at',{ascending:false}).limit(1);
   if(data && data.length){
     session=data[0];
@@ -238,7 +254,7 @@ function showSetupModal(lk){
   const el=document.createElement('div');
   el.className='Overlay'; el.id='modal';
   el.innerHTML = `<div class="Modal">
-    <div class="Modal-title">Start counting — ${l.name}</div>
+    <div class="Modal-title">${testMode?'🧪 ':''}Start counting — ${l.name}${testMode?' (test)':''}</div>
     <div class="Modal-field"><label>Week</label><input id="setupWeek" value="${defaultWeekLabel()}"></div>
     <div class="Modal-field"><label>Counter's name</label><input id="setupName" placeholder="e.g. Maria"></div>
     <div class="Modal-actions">
@@ -252,6 +268,13 @@ function showSetupModal(lk){
     const week=document.getElementById('setupWeek').value.trim()||defaultWeekLabel();
     const counter=document.getElementById('setupName').value.trim()||'Unnamed';
     closeModal();
+    if(testMode){
+      session={id:'test-'+Date.now(), location:lk, week_label:week, counter_name:counter, counts:{}, status:'in_progress'};
+      testSessions[lk]=session;
+      openCat=CATEGORIES[0].name;
+      showCount();
+      return;
+    }
     showLoading();
     const {data,error}=await sb.from(TABLE).insert({location:lk,week_label:week,counter_name:counter,counts:{},status:'in_progress'}).select().single();
     if(error){ alert('Could not start session: '+error.message); showHome(); return; }
@@ -314,6 +337,7 @@ function showCount(){
       </div>
     </header>
     <div class="Page">
+      ${testMode?'<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🧪 TEST MODE — nothing here is saved to Supabase</div>':''}
       <div style="font-size:11px;color:#777;margin-bottom:10px;">${session.week_label} · Counted by ${session.counter_name}</div>
       ${blocks}
     </div>
@@ -407,13 +431,20 @@ function queueSave(){
 }
 async function saveCounts(){
   if(!session) return;
+  if(testMode) return; // test mode never touches Supabase
   await sb.from(TABLE).update({counts:session.counts}).eq('id',session.id);
 }
 
 // ─── FINISH + PRINT ──────────────────────────────────────────────────────────
 async function finishAndPrint(){
-  showLoading();
   const completedAt=new Date().toISOString();
+  if(testMode){
+    doPrint({...session, completed_at:completedAt}, LOCATIONS[activeLoc]);
+    testSessions[activeLoc]=null;
+    showHome();
+    return;
+  }
+  showLoading();
   await sb.from(TABLE).update({counts:session.counts, status:'completed', completed_at:completedAt}).eq('id',session.id);
   doPrint({...session, completed_at:completedAt}, LOCATIONS[activeLoc]);
   showHome();
