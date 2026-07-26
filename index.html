@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '6.0';
+const APP_VERSION = '6.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -814,8 +814,8 @@ function doPrint(finalSession, loc, lk){
     <div style="font-family:'Inter',system-ui,sans-serif;font-size:9px;">
       <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1A1A2E;padding-bottom:4px;margin-bottom:6px;">
         <div>
-          <div style="font-size:14px;font-weight:700;color:#C8102E;text-transform:uppercase;letter-spacing:0.05em;font-family:'Libre Baskerville',Georgia,serif;">ZAZZO'S BIG PREP</div>
-          <div style="font-size:8px;font-weight:700;text-transform:uppercase;color:#333;margin-top:2px;letter-spacing:0.06em;">${loc.name} — ${finalSession.week_label}</div>
+          <div style="font-size:14px;font-weight:700;color:#C8102E;text-transform:uppercase;letter-spacing:0.05em;font-family:'Libre Baskerville',Georgia,serif;">${isDarien?'DARIEN ORDER':'WESTMONT STORE PREP'}</div>
+          <div style="font-size:8px;font-weight:700;text-transform:uppercase;color:#333;margin-top:2px;letter-spacing:0.06em;">${finalSession.week_label}</div>
         </div>
         <div style="text-align:right;font-size:8px;color:#555;line-height:1.7;">
           <div>Date: ${date}</div>
