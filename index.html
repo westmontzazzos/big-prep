@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Big Prep">
+  <title>Zazzo's Big Prep</title>
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    html,body{background:#EFEFEF;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:14px;min-height:100vh;-webkit-font-smoothing:antialiased;}
+
+    .H{position:fixed;top:0;left:0;right:0;height:60px;background:#C8102E;border-bottom:4px solid #1B6B3A;display:flex;align-items:center;padding:0 16px;gap:10px;z-index:200;}
+    .H-logo{font-family:'Libre Baskerville',Georgia,serif;font-size:20px;font-weight:700;color:#fff;letter-spacing:0.04em;}
+    .H-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+    .B{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 14px;border-radius:6px;font-family:'Inter',system-ui,sans-serif;font-size:12px;font-weight:700;cursor:pointer;border:2px solid transparent;white-space:nowrap;-webkit-tap-highlight-color:transparent;}
+    .B:active{opacity:0.75;}
+    .B-ghost{background:transparent;border-color:rgba(255,255,255,0.5);color:#fff;}
+    .B-outline{background:#fff;border-color:#E2E2E2;color:#111;}
+    .B-red{background:#C8102E;border-color:#C8102E;color:#fff;}
+    .B-lg{height:44px;padding:0 20px;font-size:14px;}
+
+    /* LOGIN / HOME */
+    .Login{min-height:100vh;background:#EFEFEF;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;gap:36px;}
+    .Login-logo{font-family:'Libre Baskerville',Georgia,serif;font-size:48px;font-weight:700;color:#C8102E;line-height:1;text-align:center;}
+    .Login-tag{margin-top:10px;font-size:11px;font-weight:700;color:#777;letter-spacing:0.2em;text-transform:uppercase;text-align:center;}
+    .Login-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;width:100%;max-width:420px;}
+    .LCard{background:#fff;border:2px solid #1B6B3A;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.07);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px 12px;min-height:130px;transition:border-color 0.15s,box-shadow 0.15s,transform 0.15s;user-select:none;-webkit-tap-highlight-color:transparent;text-align:center;}
+    .LCard:active{transform:translateY(1px);}
+    .LCard-emoji{font-size:28px;}
+    .LCard-role{font-family:'Libre Baskerville',Georgia,serif;font-size:17px;font-weight:700;color:#111;}
+    .LCard-sub{font-size:11px;font-weight:600;font-style:italic;color:#C8102E;}
+    .LCard-status{font-size:10px;font-weight:700;color:#1B6B3A;margin-top:2px;}
+    .LCard-status.active{color:#C8102E;}
+
+    /* PAGE */
+    .Page{margin-top:64px;padding:12px 16px 100px;}
+
+    /* ACCORDION */
+    .LocBlock{border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08),0 0 0 1px rgba(0,0,0,0.04);margin-bottom:10px;background:#fff;}
+    .LocHeader{display:flex;align-items:center;padding:13px 16px;gap:12px;user-select:none;-webkit-tap-highlight-color:transparent;cursor:pointer;}
+    .LocHeader-arrow{font-size:18px;flex-shrink:0;transition:transform 0.2s;color:#C8102E;font-weight:700;}
+    .LocHeader-arrow.open{transform:rotate(90deg);}
+    .LocHeader-info{flex:1;min-width:0;}
+    .LocHeader-name{font-family:'Libre Baskerville',Georgia,serif;font-size:15px;font-weight:700;color:#111;}
+    .LocHeader-meta{font-size:11px;color:#777;margin-top:2px;}
+    .LocHeader-badge{flex-shrink:0;font-size:11px;font-weight:700;padding:3px 9px;border-radius:12px;}
+    .badge-done{background:#E8F5ED;color:#1B6B3A;}
+    .badge-active{background:#FDECEA;color:#C8102E;}
+
+    .LocBody{display:none;border-top:1px solid #F0F0F0;}
+    .LocBody.open{display:block;}
+
+    /* ITEMS */
+    .ProdRow{display:flex;align-items:center;padding:9px 16px;border-bottom:1px solid #F5F5F5;gap:10px;}
+    .ProdRow:last-child{border-bottom:none;}
+    .ProdRow-info{flex:1;min-width:0;}
+    .ProdRow-name{font-size:13px;font-weight:600;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .ProdRow-meta{font-size:11px;color:#777;margin-top:1px;}
+
+    .DualInput{display:flex;gap:5px;flex-shrink:0;}
+    .IG{display:flex;flex-direction:column;align-items:center;gap:2px;}
+    .IG label{font-size:9px;font-weight:700;color:#777;text-transform:uppercase;letter-spacing:0.06em;}
+    .SI{width:54px;height:40px;border:2px solid #E2E2E2;border-radius:6px;background:#fff;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:15px;font-weight:700;text-align:center;padding:0;-webkit-appearance:none;appearance:none;}
+    .SI:focus{outline:none;border-color:#C8102E;}
+    .SI::-webkit-inner-spin-button,.SI::-webkit-outer-spin-button{-webkit-appearance:none;margin:0;}
+    .SI.filled{background:#fff8f9;color:#C8102E;}
+
+    /* FOOTER */
+    .Footer{position:fixed;bottom:0;left:0;right:0;height:60px;background:#C8102E;border-top:4px solid #1B6B3A;display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:150;}
+    .Footer-prog{font-size:12px;font-weight:700;color:rgba(255,255,255,0.9);text-align:center;flex:1;padding:0 8px;}
+    .Fbtn{height:38px;padding:0 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid rgba(255,255,255,0.5);background:transparent;color:#fff;white-space:nowrap;-webkit-tap-highlight-color:transparent;font-family:'Inter',system-ui,sans-serif;}
+    .Fbtn:active{background:rgba(255,255,255,0.15);}
+    .Fbtn-next{background:#fff;color:#C8102E;border-color:#fff;}
+
+    /* OVERLAY */
+    .Overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:500;padding:20px;}
+    .Modal{background:#fff;border-radius:12px;padding:26px;max-width:400px;width:100%;box-shadow:0 24px 64px rgba(0,0,0,0.22);}
+    .Modal-title{font-family:'Libre Baskerville',Georgia,serif;font-size:18px;font-weight:700;color:#111;margin-bottom:8px;}
+    .Modal-body{font-size:14px;color:#444;line-height:1.65;margin-bottom:18px;}
+    .Modal-actions{display:flex;gap:10px;justify-content:flex-end;}
+    .Modal-field{margin-bottom:14px;}
+    .Modal-field label{display:block;font-size:11px;font-weight:700;color:#777;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;}
+    .Modal-field input{width:100%;height:40px;border:2px solid #E2E2E2;border-radius:8px;padding:0 12px;font-family:'Inter',system-ui,sans-serif;font-size:14px;color:#111;}
+    .Modal-field input:focus{outline:none;border-color:#C8102E;}
+    .AvgRow{display:flex;font-size:13px;padding:5px 0;border-bottom:1px solid #F5F5F5;}
+    .AvgRow:last-child{border-bottom:none;}
+    .AvgRow-name{flex:1;color:#444;}
+    .AvgRow-val{font-weight:700;color:#C8102E;font-family:'Inter',system-ui,sans-serif;}
+
+    .Loading{min-height:100vh;display:flex;align-items:center;justify-content:center;color:#999;font-size:13px;}
+
+    /* PRINT */
+    .print-show{display:none;}
+    @media print{
+      *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+      @page{margin:0.5in;size:letter portrait;}
+      body > *{display:none!important;}
+      #print-area{display:block!important;}
+    }
+  </style>
+</head>
+<body>
+<div id="app"></div>
+<div class="print-show" id="print-area"></div>
+
+<script>
+// ─── SUPABASE ────────────────────────────────────────────────────────────────
+const SUPABASE_URL = 'https://wkzhmfyfxlfkkqevzxvf.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_B1EXocVYT57f5fpvVLONZA_YZx5trib';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const TABLE = 'prep_counts';
+
+// ─── ITEM DATA ───────────────────────────────────────────────────────────────
+const CATEGORIES = [
+  {name:'Sauces', items:[
+    {id:'alfredo',name:'Alfredo',unit:'5-gal bucket'},
+    {id:'soup',name:'Soup',unit:'5-gal bucket'},
+  ]},
+  {name:'Pasta', items:[
+    {id:'lasagna',name:'Lasagna',unit:'each'},
+  ]},
+  {name:'Beef', items:[
+    {id:'ground_beef',name:'Ground Beef',unit:'5 lb bag'},
+    {id:'sliced_beef',name:'Sliced Beef',unit:'5 lb bag'},
+  ]},
+  {name:'Sausage & Meatballs', items:[
+    {id:'sausage_links',name:'Sausage Links',unit:'bag of 7'},
+    {id:'meatballs',name:'Meatballs',unit:'bag of 8'},
+  ]},
+  {name:'Chicken', items:[
+    {id:'chicken_parm',name:'Chicken Parm',unit:'bag of 18'},
+    {id:'grilled_chicken',name:'Grilled Chicken',unit:'10 lb bag'},
+    {id:'lemon_chicken',name:'Lemon Chicken',unit:'group of 10'},
+  ]},
+  {name:'Frozen Pizza', items:[
+    {id:'pizza_cheese',name:'Cheese',unit:'each'},
+    {id:'pizza_sausage',name:'Sausage',unit:'each'},
+    {id:'pizza_pepperoni',name:'Pepperoni',unit:'each'},
+  ]},
+];
+const ALL_ITEMS = CATEGORIES.flatMap(c=>c.items);
+
+const LOCATIONS = {
+  westmont:{name:'Westmont', emoji:'🍳', sub:'Production count', fieldLabel:'Made'},
+  darien:{name:'Darien', emoji:'📦', sub:'On-hand count', fieldLabel:'On Hand'},
+};
+
+// ─── STATE ───────────────────────────────────────────────────────────────────
+let activeLoc = null;
+let session = null;      // {id, week_label, counter_name, counts, status}
+let openCat = null;
+let saveTimer = null;
+const app = document.getElementById('app');
+
+function defaultWeekLabel(){
+  const d=new Date(); const day=d.getDay();
+  const monday=new Date(d); monday.setDate(d.getDate()-((day+6)%7));
+  return 'Week of '+monday.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+
+function catFilledCount(cat){ return cat.items.filter(i=>(session.counts[i.id]??'')!=='' ).length; }
+function catComplete(cat){ return cat.items.every(i=>(session.counts[i.id]??'')!=='' ); }
+function totalItems(){ return ALL_ITEMS.length; }
+function totalCounted(){ return ALL_ITEMS.filter(i=>(session.counts[i.id]??'')!=='' ).length; }
+function allComplete(){ return CATEGORIES.every(catComplete); }
+
+// ─── BOOT ────────────────────────────────────────────────────────────────────
+showLoading();
+showHome();
+
+function showLoading(){
+  app.innerHTML = `<div class="Loading">Loading…</div>`;
+}
+
+// ─── HOME ────────────────────────────────────────────────────────────────────
+async function showHome(){
+  activeLoc=null; session=null;
+  app.innerHTML = `
+    <div class="Login">
+      <div>
+        <div class="Login-logo">Zazzo's</div>
+        <div style="font-family:'Libre Baskerville',Georgia,serif;font-size:22px;font-weight:700;color:#111;text-align:center;margin-top:4px;">Big Prep</div>
+        <div class="Login-tag">Westmont · Darien</div>
+      </div>
+      <div class="Login-grid">
+        ${Object.entries(LOCATIONS).map(([lk,l])=>`
+          <div class="LCard" data-lk="${lk}">
+            <div class="LCard-emoji">${l.emoji}</div>
+            <div class="LCard-role">${l.name}</div>
+            <div class="LCard-sub">${l.sub}</div>
+            <div class="LCard-status" id="status-${lk}">checking…</div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  document.querySelectorAll('.LCard[data-lk]').forEach(el=>{
+    el.onclick=()=>openLocation(el.dataset.lk);
+  });
+  // fetch status for each location
+  for(const lk of Object.keys(LOCATIONS)){
+    const {data}=await sb.from(TABLE).select('*').eq('location',lk).eq('status','in_progress').order('started_at',{ascending:false}).limit(1);
+    const el=document.getElementById('status-'+lk);
+    if(!el) return;
+    if(data && data.length){
+      el.textContent='In progress — '+data[0].week_label;
+      el.classList.add('active');
+    } else {
+      el.textContent='No active count';
+    }
+  }
+}
+
+async function openLocation(lk){
+  activeLoc=lk;
+  const {data}=await sb.from(TABLE).select('*').eq('location',lk).eq('status','in_progress').order('started_at',{ascending:false}).limit(1);
+  if(data && data.length){
+    session=data[0];
+    session.counts=session.counts||{};
+    openCat=CATEGORIES[0].name;
+    showCount();
+  } else {
+    showSetupModal(lk);
+  }
+}
+
+function showSetupModal(lk){
+  const l=LOCATIONS[lk];
+  app.innerHTML = `<div class="Login"><div class="Login-logo" style="font-size:32px;">${l.name}</div></div>`;
+  const el=document.createElement('div');
+  el.className='Overlay'; el.id='modal';
+  el.innerHTML = `<div class="Modal">
+    <div class="Modal-title">Start counting — ${l.name}</div>
+    <div class="Modal-field"><label>Week</label><input id="setupWeek" value="${defaultWeekLabel()}"></div>
+    <div class="Modal-field"><label>Counter's name</label><input id="setupName" placeholder="e.g. Maria"></div>
+    <div class="Modal-actions">
+      <button class="B B-outline" id="setupCancel">Cancel</button>
+      <button class="B B-red" id="setupStart">Start Counting</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  document.getElementById('setupCancel').onclick=()=>{ closeModal(); showHome(); };
+  document.getElementById('setupStart').onclick=async ()=>{
+    const week=document.getElementById('setupWeek').value.trim()||defaultWeekLabel();
+    const counter=document.getElementById('setupName').value.trim()||'Unnamed';
+    closeModal();
+    showLoading();
+    const {data,error}=await sb.from(TABLE).insert({location:lk,week_label:week,counter_name:counter,counts:{},status:'in_progress'}).select().single();
+    if(error){ alert('Could not start session: '+error.message); showHome(); return; }
+    session=data; session.counts=session.counts||{};
+    openCat=CATEGORIES[0].name;
+    showCount();
+  };
+}
+
+// ─── COUNT VIEW ──────────────────────────────────────────────────────────────
+function showCount(){
+  const l=LOCATIONS[activeLoc];
+  const done=allComplete();
+  const counted=totalCounted(), total=totalItems();
+
+  const blocks = CATEGORIES.map((cat,ci)=>{
+    const filled=catFilledCount(cat);
+    const complete=catComplete(cat);
+    const isOpen=openCat===cat.name;
+    const badgeCls = complete?'badge-done':'badge-active';
+    const badgeTxt = complete?'✓ Done':filled+' / '+cat.items.length;
+
+    const rows = cat.items.map((item,idx)=>{
+      const val=session.counts[item.id] ?? '';
+      return `<div class="ProdRow">
+        <div class="ProdRow-info">
+          <div class="ProdRow-name">${item.name}</div>
+          <div class="ProdRow-meta">${item.unit}</div>
+        </div>
+        <div class="DualInput">
+          <div class="IG"><label>${l.fieldLabel}</label>
+            <input class="SI${val!==''?' filled':''}" type="number" min="0" inputmode="numeric"
+              data-item="${item.id}" data-cat="${cat.name}" value="${val}" placeholder="0">
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+
+    return `<div class="LocBlock" id="cb-${ci}">
+      <div class="LocHeader" data-cat="${cat.name}" data-ci="${ci}">
+        <span class="LocHeader-arrow${isOpen?' open':''}">›</span>
+        <div class="LocHeader-info">
+          <div class="LocHeader-name">${cat.name}</div>
+          <div class="LocHeader-meta">${cat.items.length} item${cat.items.length!==1?'s':''}</div>
+        </div>
+        <span class="LocHeader-badge ${badgeCls}">${badgeTxt}</span>
+      </div>
+      <div class="LocBody${isOpen?' open':''}">${rows}</div>
+    </div>`;
+  }).join('');
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">${l.name}</div>
+      <div class="H-right">
+        <button class="B B-ghost" id="bAvg">📊 Averages</button>
+        <button class="B B-ghost" id="bHome">← Home</button>
+      </div>
+    </header>
+    <div class="Page">
+      <div style="font-size:11px;color:#777;margin-bottom:10px;">${session.week_label} · Counted by ${session.counter_name}</div>
+      ${blocks}
+    </div>
+    <div class="Footer no-print">
+      <button class="Fbtn" id="bHome2">← Home</button>
+      <div class="Footer-prog">${done?'All counted! 🎉':counted+' / '+total+' items'}</div>
+      <button class="Fbtn" id="bClear">🗑 Clear</button>
+      <button class="Fbtn Fbtn-next" id="bFinish">✅ Finish &amp; Print</button>
+    </div>`;
+
+  document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>showHome();
+  document.getElementById('bAvg').onclick=()=>showAverages();
+  document.getElementById('bClear').onclick=()=>{
+    showModal('Clear this count?','This erases every entry for '+session.week_label+' at '+l.name+'. The session stays open so you can start over.',[
+      {l:'Cancel',c:'B-outline',fn:closeModal},
+      {l:'Clear',c:'B-red',fn:async ()=>{ closeModal(); session.counts={}; await saveCounts(true); showCount(); }},
+    ]);
+  };
+  document.getElementById('bFinish').onclick=()=>{
+    showModal('Finish this count?','This saves the final counts for '+session.week_label+', opens a printable ticket, and resets '+l.name+' back to zero for next time.',[
+      {l:'Cancel',c:'B-outline',fn:closeModal},
+      {l:'Finish',c:'B-red',fn:async ()=>{ closeModal(); await finishAndPrint(); }},
+    ]);
+  };
+
+  document.querySelectorAll('.LocHeader').forEach(hdr=>{
+    hdr.onclick=()=>{
+      const cat=hdr.dataset.cat;
+      openCat=(openCat===cat?null:cat);
+      showCount();
+      if(openCat===cat){
+        setTimeout(()=>{
+          document.getElementById('cb-'+hdr.dataset.ci)?.scrollIntoView({behavior:'smooth',block:'start'});
+        },50);
+      }
+    };
+  });
+
+  const allInputs=[...document.querySelectorAll('.SI')];
+  allInputs.forEach((input,i)=>{
+    input.oninput=()=>{
+      const itemId=input.dataset.item, cat=input.dataset.cat;
+      session.counts[itemId]=input.value;
+      input.classList.toggle('filled', input.value!=='');
+      refreshBadge(cat);
+      refreshFooter();
+      queueSave();
+
+      if(input.value!==''){
+        const next=allInputs[i+1];
+        if(next && next.dataset.cat===cat) setTimeout(()=>next.focus(),10);
+      }
+      const catObj=CATEGORIES.find(c=>c.name===cat);
+      if(catComplete(catObj)){
+        const ci=CATEGORIES.indexOf(catObj), nextCat=CATEGORIES[ci+1];
+        if(nextCat && openCat===cat){
+          setTimeout(()=>{ openCat=nextCat.name; showCount(); document.getElementById('cb-'+(ci+1))?.scrollIntoView({behavior:'smooth',block:'start'}); },350);
+        }
+      }
+    };
+    input.onclick=e=>e.stopPropagation();
+  });
+}
+
+function refreshBadge(catName){
+  const cat=CATEGORIES.find(c=>c.name===catName);
+  const badge=document.querySelector(`.LocHeader[data-cat="${catName}"] .LocHeader-badge`);
+  if(!badge) return;
+  const complete=catComplete(cat);
+  badge.className='LocHeader-badge '+(complete?'badge-done':'badge-active');
+  badge.textContent=complete?'✓ Done':catFilledCount(cat)+' / '+cat.items.length;
+}
+function refreshFooter(){
+  const prog=document.querySelector('.Footer-prog');
+  if(!prog) return;
+  prog.textContent = allComplete() ? 'All counted! 🎉' : totalCounted()+' / '+totalItems()+' items';
+}
+
+function queueSave(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>saveCounts(false),500);
+}
+async function saveCounts(){
+  if(!session) return;
+  await sb.from(TABLE).update({counts:session.counts}).eq('id',session.id);
+}
+
+// ─── FINISH + PRINT ──────────────────────────────────────────────────────────
+async function finishAndPrint(){
+  showLoading();
+  const completedAt=new Date().toISOString();
+  await sb.from(TABLE).update({counts:session.counts, status:'completed', completed_at:completedAt}).eq('id',session.id);
+  doPrint({...session, completed_at:completedAt}, LOCATIONS[activeLoc]);
+  showHome();
+}
+
+function doPrint(finalSession, loc){
+  const date=new Date(finalSession.completed_at).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  let tableRows='';
+  CATEGORIES.forEach(cat=>{
+    tableRows+=`<tr><td colspan="3" style="background:#1A1A2E;color:#fff;font-weight:700;padding:4px 8px;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;border-top:2px solid #000;border-bottom:2px solid #000;">${cat.name}</td></tr>
+    <tr>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:50%;border-right:1px solid #8B0000;">Item</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:30%;border-right:1px solid #8B0000;">Unit</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;">${loc.fieldLabel}</td>
+    </tr>`;
+    cat.items.forEach(item=>{
+      const val=finalSession.counts[item.id] ?? '';
+      tableRows+=`<tr>
+        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;font-family:'Inter',system-ui,sans-serif;">${item.name}</td>
+        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;color:#555;font-family:'Inter',system-ui,sans-serif;">${item.unit}</td>
+        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#C8102E;font-family:'Inter',system-ui,sans-serif;">${val}</td>
+      </tr>`;
+    });
+  });
+
+  document.getElementById('print-area').innerHTML = `
+    <div style="font-family:'Inter',system-ui,sans-serif;font-size:9px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1A1A2E;padding-bottom:4px;margin-bottom:6px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#C8102E;text-transform:uppercase;letter-spacing:0.05em;font-family:'Libre Baskerville',Georgia,serif;">ZAZZO'S BIG PREP</div>
+          <div style="font-size:8px;font-weight:700;text-transform:uppercase;color:#333;margin-top:2px;letter-spacing:0.06em;">${loc.name} — ${finalSession.week_label}</div>
+        </div>
+        <div style="text-align:right;font-size:8px;color:#555;line-height:1.7;">
+          <div>Date: ${date}</div>
+          <div>Counted by: ${finalSession.counter_name}</div>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:9px;table-layout:fixed;"><tbody>${tableRows}</tbody></table>
+    </div>`;
+  window.print();
+}
+
+// ─── AVERAGES ────────────────────────────────────────────────────────────────
+async function showAverages(){
+  const l=LOCATIONS[activeLoc];
+  showModal('6-Week Average — '+l.name, `<div id="avgBody">Loading…</div>`, [
+    {l:'Close',c:'B-outline',fn:closeModal},
+  ]);
+  const {data,error}=await sb.from(TABLE).select('*').eq('location',activeLoc).eq('status','completed').order('completed_at',{ascending:false}).limit(6);
+  const body=document.getElementById('avgBody');
+  if(!body) return;
+  if(error){ body.textContent='Could not load averages.'; return; }
+  if(!data || data.length===0){ body.textContent='No completed weeks yet.'; return; }
+  const rows = ALL_ITEMS.map(item=>{
+    const vals=data.map(d=>Number(d.counts?.[item.id]||0));
+    const avg=vals.reduce((a,b)=>a+b,0)/vals.length;
+    return `<div class="AvgRow"><div class="AvgRow-name">${item.name}</div><div class="AvgRow-val">${avg.toFixed(1)}</div></div>`;
+  }).join('');
+  body.innerHTML = `<div style="font-size:11px;color:#999;margin-bottom:8px;">Based on last ${data.length} completed week${data.length!==1?'s':''}</div>${rows}`;
+}
+
+// ─── MODAL ───────────────────────────────────────────────────────────────────
+function showModal(title, body, btns){
+  closeModal();
+  const el=document.createElement('div');
+  el.className='Overlay'; el.id='modal';
+  el.innerHTML=`<div class="Modal">
+    <div class="Modal-title">${title}</div>
+    <div class="Modal-body">${body}</div>
+    <div class="Modal-actions">${btns.map((b,i)=>`<button class="B ${b.c}" data-i="${i}">${b.l}</button>`).join('')}</div>
+  </div>`;
+  document.body.appendChild(el);
+  el.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>btns[+b.dataset.i].fn());
+}
+function closeModal(){ document.getElementById('modal')?.remove(); }
+</script>
+</body>
+</html>
