@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '5.0';
+const APP_VERSION = '6.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -282,6 +282,25 @@ async function openLocation(lk){
   showDashboard(lk);
 }
 
+// ─── EDIT A COMPLETED ORDER/COUNT ────────────────────────────────────────────
+// Reopens a finished week for correction. Once re-finished, it overrides that
+// same row — for Darien this also resets acknowledged back to false, so
+// Westmont has to review + acknowledge the corrected numbers just like new.
+async function editCompletedOrder(row){
+  activeLoc=row.location;
+  if(testMode){
+    session={...row, counts:{...row.counts}, status:'in_progress'};
+    testSessions[row.location]=session;
+  } else {
+    showLoading();
+    await sb.from(TABLE).update({status:'in_progress'}).eq('id',row.id);
+    session={...row, counts:{...row.counts}, status:'in_progress'};
+  }
+  openCat=CATEGORIES[0].name;
+  currentPars=await loadPars(row.location);
+  showCount();
+}
+
 async function goToCounting(lk){
   activeLoc=lk;
   if(testMode){
@@ -382,7 +401,7 @@ async function showDashboard(lk){
       </div>
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
         <div style="font-size:12px;color:#777;font-weight:600;">${weekRangeLabel(selectedWeek)}${selectedWeek===curWeek?' · current week':''}</div>
-        ${activeSession && activeSession.status==='completed' ? '<button class="B B-outline" id="bDashPrint" style="height:28px;padding:0 10px;font-size:11px;">🖨 Print</button>' : ''}
+        ${activeSession && activeSession.status==='completed' ? '<div style="display:flex;gap:6px;"><button class="B B-outline" id="bDashEdit" style="height:28px;padding:0 10px;font-size:11px;">✏️ Edit</button><button class="B B-outline" id="bDashPrint" style="height:28px;padding:0 10px;font-size:11px;">🖨 Print</button></div>' : ''}
       </div>
       <div class="LocBlock">${rows}</div>
     </div>
@@ -401,6 +420,14 @@ async function showDashboard(lk){
     document.getElementById('bDashPrint').onclick=async ()=>{
       if(lk==='darien') currentPars=await loadPars('darien');
       doPrint(activeSession, LOCATIONS[lk], lk);
+    };
+  }
+  if(document.getElementById('bDashEdit')){
+    document.getElementById('bDashEdit').onclick=()=>{
+      showModal('Edit '+activeSession.week_label+'?','This reopens the completed numbers so you can fix them. Once you finish it again, it overrides this week\'s order/count and — for Darien — has to be re-certified and re-acknowledged by Westmont, just like a new submission.',[
+        {l:'Cancel',c:'B-outline',fn:closeModal},
+        {l:'Edit',c:'B-red',fn:async ()=>{ closeModal(); await editCompletedOrder(activeSession); }},
+      ]);
     };
   }
   if(lk==='westmont'){
@@ -437,6 +464,7 @@ async function showDarienOrders(){
           <span class="LocHeader-badge ${acked?'badge-done':'badge-active'}">${acked?'✓ Acknowledged':'Needs Review'}</span>
         </div>
         <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="B B-outline" data-edit="${o.id}" style="flex:1;justify-content:center;">✏️ Edit</button>
           <button class="B B-outline" data-print="${o.id}" style="flex:1;justify-content:center;">🖨 Print</button>
           ${!acked ? `<button class="B B-red" data-ack="${o.id}" style="flex:1;justify-content:center;">✅ Acknowledge</button>` : ''}
         </div>
@@ -457,6 +485,13 @@ async function showDarienOrders(){
   orders.forEach(o=>{
     const printBtn=document.querySelector(`[data-print="${o.id}"]`);
     if(printBtn) printBtn.onclick=()=>doPrint(o, LOCATIONS.darien, 'darien');
+    const editBtn=document.querySelector(`[data-edit="${o.id}"]`);
+    if(editBtn) editBtn.onclick=()=>{
+      showModal('Edit '+o.week_label+'?','This reopens the completed numbers so you can fix them. Once it\'s finished again, it overrides this order and has to be re-certified and re-acknowledged, just like a new submission.',[
+        {l:'Cancel',c:'B-outline',fn:closeModal},
+        {l:'Edit',c:'B-red',fn:async ()=>{ closeModal(); await editCompletedOrder(o); }},
+      ]);
+    };
     const ackBtn=document.querySelector(`[data-ack="${o.id}"]`);
     if(ackBtn) ackBtn.onclick=async ()=>{
       await sb.from(TABLE).update({acknowledged:true, acknowledged_at:new Date().toISOString()}).eq('id',o.id);
@@ -601,6 +636,7 @@ function showCount(){
     </header>
     <div class="Page">
       ${testMode?'<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🧪 TEST MODE — nothing here is saved to Supabase</div>':''}
+      ${session.completed_at?'<div style="background:#FFF6E0;color:#8A6300;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">✏️ Editing a previously submitted week — finishing again will override it'+(activeLoc==='darien'?' and require re-acknowledgment':'')+'</div>':''}
       <div style="font-size:11px;color:#777;margin-bottom:10px;">${session.week_label} · Counted by ${session.counter_name}</div>
       ${blocks}
     </div>
@@ -729,7 +765,7 @@ async function finishAndPrint(cert){
     return;
   }
   showLoading();
-  await sb.from(TABLE).update({counts, status:'completed', completed_at:completedAt}).eq('id',session.id);
+  await sb.from(TABLE).update({counts, status:'completed', completed_at:completedAt, acknowledged:false, acknowledged_at:null}).eq('id',session.id);
   doPrint({...session, counts, completed_at:completedAt}, LOCATIONS[lk], lk);
   showDashboard(lk);
 }
