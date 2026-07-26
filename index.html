@@ -118,7 +118,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '2.1';
+const APP_VERSION = '3.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -153,15 +153,33 @@ const ALL_ITEMS = CATEGORIES.flatMap(c=>c.items);
 const ITEM_BY_ID = Object.fromEntries(ALL_ITEMS.map(i=>[i.id,i]));
 
 const LOCATIONS = {
-  westmont:{name:'Westmont', emoji:'🍳', sub:'Production count', fieldLabel:'Made'},
-  darien:{name:'Darien', emoji:'📦', sub:'Order count', fieldLabel:'Order'},
+  westmont:{name:'Westmont', emoji:'🍳', sub:'Production count', fieldLabel:'Made', actionLabel:'Count'},
+  darien:{name:'Darien', emoji:'📦', sub:'Order count', fieldLabel:'Order', actionLabel:'Place Order'},
 };
+
+// ─── WEEK NUMBERING ──────────────────────────────────────────────────────────
+// Week 1 = the Monday–Sunday of our first real data (Jul 6–12, 2026).
+// Both locations share this same numbering so "Week 3" means the same
+// calendar week on both sides, even if one side has no data for it yet.
+const WEEK1_MONDAY = new Date('2026-07-06T00:00:00Z');
+const MS_PER_WEEK = 7*24*60*60*1000;
+function weekNumberForDate(d){
+  return Math.floor((d.getTime()-WEEK1_MONDAY.getTime())/MS_PER_WEEK)+1;
+}
+function weekRangeLabel(n){
+  const mon=new Date(WEEK1_MONDAY.getTime()+(n-1)*MS_PER_WEEK);
+  const sun=new Date(mon.getTime()+6*24*60*60*1000);
+  const fmt=d=>d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  return fmt(mon)+' – '+fmt(sun);
+}
+function currentWeekNumber(){ return weekNumberForDate(new Date()); }
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
 let activeLoc = null;
 let session = null;      // {id, week_label, counter_name, counts, status}
 let openCat = null;
 let saveTimer = null;
+let selectedWeek = null; // which week tab is open on the dashboard
 let testMode = false;    // when true, nothing is read from or written to Supabase
 const testSessions = {westmont:null, darien:null}; // in-memory only, lost on refresh
 const app = document.getElementById('app');
@@ -235,11 +253,17 @@ async function showHome(){
 
 async function openLocation(lk){
   activeLoc=lk;
+  showDashboard(lk);
+}
+
+async function goToCounting(lk){
+  activeLoc=lk;
   if(testMode){
     if(testSessions[lk]){ session=testSessions[lk]; openCat=CATEGORIES[0].name; showCount(); }
     else showSetupModal(lk);
     return;
   }
+  showLoading();
   const {data}=await sb.from(TABLE).select('*').eq('location',lk).eq('status','in_progress').order('started_at',{ascending:false}).limit(1);
   if(data && data.length){
     session=data[0];
@@ -249,6 +273,95 @@ async function openLocation(lk){
   } else {
     showSetupModal(lk);
   }
+}
+
+// ─── DASHBOARD ───────────────────────────────────────────────────────────────
+async function showDashboard(lk){
+  activeLoc=lk;
+  showLoading();
+  const l=LOCATIONS[lk];
+  let sessions=[];
+  if(testMode){
+    if(testSessions[lk]) sessions=[testSessions[lk]];
+  } else {
+    const {data,error}=await sb.from(TABLE).select('*').eq('location',lk).order('started_at',{ascending:true});
+    if(!error) sessions=data||[];
+  }
+
+  const curWeek=currentWeekNumber();
+  if(selectedWeek==null || selectedWeek>curWeek) selectedWeek=curWeek;
+
+  const weekMap={};
+  sessions.forEach(s=>{
+    const dateStr=s.completed_at||s.started_at;
+    const wk=weekNumberForDate(new Date(dateStr));
+    const existing=weekMap[wk];
+    if(!existing) weekMap[wk]=s;
+    else {
+      const existingDate=new Date(existing.completed_at||existing.started_at);
+      const thisDate=new Date(dateStr);
+      const thisBetter = (s.status==='completed' && existing.status!=='completed') || thisDate>existingDate;
+      if(thisBetter) weekMap[wk]=s;
+    }
+  });
+
+  const completedSessions=sessions.filter(s=>s.status==='completed').sort((a,b)=>new Date(b.completed_at)-new Date(a.completed_at)).slice(0,6);
+  const averages={};
+  ALL_ITEMS.forEach(item=>{
+    if(completedSessions.length===0){ averages[item.id]=null; return; }
+    const vals=completedSessions.map(s=>Number(s.counts?.[item.id]||0));
+    averages[item.id]=vals.reduce((a,b)=>a+b,0)/vals.length;
+  });
+
+  const weekTabs=[];
+  for(let w=1; w<=curWeek; w++) weekTabs.push(w);
+
+  const activeSession=weekMap[selectedWeek];
+
+  const rows = ALL_ITEMS.map(item=>{
+    const countVal = activeSession ? (activeSession.counts?.[item.id] ?? '') : '';
+    const countTxt = countVal!=='' ? countVal+' '+item.unit.replace(/^\d+[\s-]*/,'').split(' ')[0] : '—';
+    const avgTxt = averages[item.id]!=null ? averages[item.id].toFixed(1) : '—';
+    const inProgTag = activeSession && activeSession.status==='in_progress' ? ' <span style="color:#C8102E;font-weight:700;">(in progress)</span>' : '';
+    return `<div class="ProdRow">
+      <div class="ProdRow-info">
+        <div class="ProdRow-name">${item.name}</div>
+        <div class="ProdRow-meta">${item.unit}</div>
+      </div>
+      <div style="display:flex;gap:14px;text-align:center;flex-shrink:0;">
+        <div style="width:44px;"><div style="font-size:9px;color:#999;text-transform:uppercase;font-weight:700;">Par</div><div style="font-size:13px;color:#ccc;">—</div></div>
+        <div style="width:54px;"><div style="font-size:9px;color:#999;text-transform:uppercase;font-weight:700;">Count</div><div style="font-size:13px;font-weight:700;color:#111;">${countTxt}${inProgTag}</div></div>
+        <div style="width:44px;"><div style="font-size:9px;color:#999;text-transform:uppercase;font-weight:700;">Avg</div><div style="font-size:13px;font-weight:700;color:#C8102E;">${avgTxt}</div></div>
+      </div>
+    </div>`;
+  }).join('');
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">${l.name}</div>
+      <div class="H-right">
+        <button class="B B-ghost" id="bDashHome">🏠 Home</button>
+      </div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      ${testMode?'<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🧪 TEST MODE — showing test data only</div>':''}
+      <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;">
+        ${weekTabs.map(w=>`<button class="B ${w===selectedWeek?'B-red':'B-outline'}" data-week="${w}" style="flex-shrink:0;">Week ${w}</button>`).join('')}
+      </div>
+      <div style="font-size:12px;color:#777;font-weight:600;margin-bottom:14px;">${weekRangeLabel(selectedWeek)}${selectedWeek===curWeek?' · current week':''}</div>
+      <div class="LocBlock">${rows}</div>
+    </div>
+    <div class="Footer no-print">
+      <button class="Fbtn" id="bDashHome2">🏠 Home</button>
+      <div class="Footer-prog">${l.name} Dashboard</div>
+      <button class="Fbtn Fbtn-next" id="bDashAction">${l.actionLabel}</button>
+    </div>`;
+
+  document.getElementById('bDashHome').onclick=document.getElementById('bDashHome2').onclick=()=>showHome();
+  document.getElementById('bDashAction').onclick=()=>goToCounting(lk);
+  document.querySelectorAll('[data-week]').forEach(btn=>{
+    btn.onclick=()=>{ selectedWeek=Number(btn.dataset.week); showDashboard(lk); };
+  });
 }
 
 function showSetupModal(lk){
@@ -266,7 +379,7 @@ function showSetupModal(lk){
     </div>
   </div>`;
   document.body.appendChild(el);
-  document.getElementById('setupCancel').onclick=()=>{ closeModal(); showHome(); };
+  document.getElementById('setupCancel').onclick=()=>{ closeModal(); showDashboard(lk); };
   document.getElementById('setupStart').onclick=async ()=>{
     const week=document.getElementById('setupWeek').value.trim()||defaultWeekLabel();
     const counter=document.getElementById('setupName').value.trim()||'Unnamed';
@@ -280,7 +393,7 @@ function showSetupModal(lk){
     }
     showLoading();
     const {data,error}=await sb.from(TABLE).insert({location:lk,week_label:week,counter_name:counter,counts:{},status:'in_progress'}).select().single();
-    if(error){ alert('Could not start session: '+error.message); showHome(); return; }
+    if(error){ alert('Could not start session: '+error.message); showDashboard(lk); return; }
     session=data; session.counts=session.counts||{};
     openCat=CATEGORIES[0].name;
     showCount();
@@ -336,7 +449,7 @@ function showCount(){
       <div class="H-right">
         ${activeLoc==='westmont' ? '<button class="B B-ghost" id="bStock">📦 Stock</button>' : ''}
         <button class="B B-ghost" id="bAvg">📊 Averages</button>
-        <button class="B B-ghost" id="bHome">← Home</button>
+        <button class="B B-ghost" id="bHome">← Dashboard</button>
       </div>
     </header>
     <div class="Page">
@@ -345,13 +458,13 @@ function showCount(){
       ${blocks}
     </div>
     <div class="Footer no-print">
-      <button class="Fbtn" id="bHome2">← Home</button>
+      <button class="Fbtn" id="bHome2">← Dashboard</button>
       <div class="Footer-prog">${done?'All counted! 🎉':counted+' / '+total+' items'}</div>
       <button class="Fbtn" id="bClear">🗑 Clear</button>
       <button class="Fbtn Fbtn-next" id="bFinish">✅ Finish &amp; Print</button>
     </div>`;
 
-  document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>showHome();
+  document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>showDashboard(activeLoc);
   document.getElementById('bAvg').onclick=()=>showAverages();
   if(activeLoc==='westmont') document.getElementById('bStock').onclick=()=>showStock();
   document.getElementById('bClear').onclick=()=>{
@@ -441,16 +554,17 @@ async function saveCounts(){
 // ─── FINISH + PRINT ──────────────────────────────────────────────────────────
 async function finishAndPrint(){
   const completedAt=new Date().toISOString();
+  const lk=activeLoc;
   if(testMode){
-    doPrint({...session, completed_at:completedAt}, LOCATIONS[activeLoc]);
-    testSessions[activeLoc]=null;
-    showHome();
+    doPrint({...session, completed_at:completedAt}, LOCATIONS[lk]);
+    testSessions[lk]=null;
+    showDashboard(lk);
     return;
   }
   showLoading();
   await sb.from(TABLE).update({counts:session.counts, status:'completed', completed_at:completedAt}).eq('id',session.id);
-  doPrint({...session, completed_at:completedAt}, LOCATIONS[activeLoc]);
-  showHome();
+  doPrint({...session, completed_at:completedAt}, LOCATIONS[lk]);
+  showDashboard(lk);
 }
 
 function doPrint(finalSession, loc){
