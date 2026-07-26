@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '8.0';
+const APP_VERSION = '9.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -439,6 +439,7 @@ async function showDashboard(lk){
       ${testMode?'<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🧪 TEST MODE — showing test data only</div>':''}
       ${lk==='westmont' && pendingDarien.length ? `<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🔔 Darien has ${pendingDarien.length} order${pendingDarien.length!==1?'s':''} awaiting review — tap 📦 Darien above</div>` : ''}
       ${lk==='darien' && openAddons.length ? `<div style="background:#FFF6E0;color:#8A6300;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">📬 ${openAddons.length} open add-on${openAddons.length!==1?'s':''} not yet fully delivered</div>` : ''}
+      <button class="B B-outline" id="bPrintCenter" style="width:100%;justify-content:center;margin-bottom:12px;">🖨 Print</button>
       <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;">
         ${weekTabs.map(w=>`<button class="B ${w===selectedWeek?'B-red':'B-outline'}" data-week="${w}" style="flex-shrink:0;">Week ${w}</button>`).join('')}
       </div>
@@ -461,6 +462,7 @@ async function showDashboard(lk){
   document.querySelectorAll('[data-week]').forEach(btn=>{
     btn.onclick=()=>{ selectedWeek=Number(btn.dataset.week); showDashboard(lk); };
   });
+  document.getElementById('bPrintCenter').onclick=()=>showPrintPicker(lk);
   if(document.getElementById('bDashPrint')){
     document.getElementById('bDashPrint').onclick=async ()=>{
       if(lk==='darien') currentPars=await loadPars('darien');
@@ -695,6 +697,121 @@ async function showDeliveries(){
       showDeliveries();
     };
   });
+}
+
+// ─── PRINT CENTER ────────────────────────────────────────────────────────────
+// Lets you pick WHAT to print and WHICH week, instead of hunting through week
+// tabs. Westmont can print either Westmont's own counts or Darien's order.
+// Darien can only print its own order/add-ons — not Westmont's counts.
+async function showPrintPicker(lk, printLoc){
+  printLoc = printLoc || lk; // which location's data we're choosing a week from
+  showLoading();
+  currentPars = await loadPars('darien');
+  const {data,error} = await sb.from(TABLE).select('*').eq('location',printLoc).eq('status','completed').order('completed_at',{ascending:false}).limit(26);
+  const weeks = error ? [] : (data||[]);
+  const addons = printLoc==='darien' ? await getAllAddonsForPrint() : [];
+
+  const canChooseLocation = lk==='westmont';
+
+  const weekRows = weeks.map(w=>{
+    const dateStr=new Date(w.completed_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    return `<div class="ProdRow" data-print-week="${w.id}" style="cursor:pointer;">
+      <div class="ProdRow-info">
+        <div class="ProdRow-name">${w.week_label}</div>
+        <div class="ProdRow-meta">Completed ${dateStr} · ${w.counter_name}</div>
+      </div>
+      <div style="font-size:18px;color:#C8102E;">🖨</div>
+    </div>`;
+  }).join('') || `<div style="text-align:center;color:#999;font-size:13px;padding:20px 0;">No completed weeks yet.</div>`;
+
+  const addonRows = addons.map(a=>{
+    const dateStr=new Date(a.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    return `<div class="ProdRow" data-print-addon="${a.id}" style="cursor:pointer;">
+      <div class="ProdRow-info">
+        <div class="ProdRow-name">Add-On · ${a.requested_by||'Unnamed'}</div>
+        <div class="ProdRow-meta">${dateStr}${a.status==='fulfilled'?' · ✓ fulfilled':''}</div>
+      </div>
+      <div style="font-size:18px;color:#C8102E;">🖨</div>
+    </div>`;
+  }).join('');
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Print</div>
+      <div class="H-right"><button class="B B-ghost" id="bPrintBack">← Dashboard</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      ${canChooseLocation ? `
+      <div style="display:flex;gap:8px;margin-bottom:16px;">
+        <button class="B ${printLoc==='westmont'?'B-red':'B-outline'}" id="bPrintWestmont" style="flex:1;justify-content:center;">🍳 Westmont Counts</button>
+        <button class="B ${printLoc==='darien'?'B-red':'B-outline'}" id="bPrintDarien" style="flex:1;justify-content:center;">📦 Darien Order</button>
+      </div>` : ''}
+      <div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Pick a week to print</div>
+      <div class="LocBlock" style="margin-bottom:${addonRows?'16px':'0'};">${weekRows}</div>
+      ${printLoc==='darien' && addonRows ? `<div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Add-On Requests</div><div class="LocBlock">${addonRows}</div>` : ''}
+    </div>`;
+
+  document.getElementById('bPrintBack').onclick=()=>showDashboard(lk);
+  if(canChooseLocation){
+    document.getElementById('bPrintWestmont').onclick=()=>showPrintPicker(lk,'westmont');
+    document.getElementById('bPrintDarien').onclick=()=>showPrintPicker(lk,'darien');
+  }
+  weeks.forEach(w=>{
+    const el=document.querySelector(`[data-print-week="${w.id}"]`);
+    if(el) el.onclick=()=>doPrint(w, LOCATIONS[printLoc], printLoc);
+  });
+  addons.forEach(a=>{
+    const el=document.querySelector(`[data-print-addon="${a.id}"]`);
+    if(el) el.onclick=()=>doPrintAddon(a);
+  });
+}
+
+async function getAllAddonsForPrint(){
+  if(testMode) return [];
+  const {data,error}=await sb.from('darien_addons').select('*').order('created_at',{ascending:false}).limit(20);
+  return error ? [] : (data||[]);
+}
+
+function doPrintAddon(addon){
+  const dateStr=new Date(addon.created_at).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const items=addon.items||{};
+  const delivered=addon.delivered||{};
+  const rows=Object.keys(items).map(itemId=>{
+    const item=ITEM_BY_ID[itemId];
+    if(!item) return '';
+    return `<tr>
+      <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;font-family:'Inter',system-ui,sans-serif;">${item.name}</td>
+      <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;color:#555;font-family:'Inter',system-ui,sans-serif;">${item.unit}</td>
+      <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#C8102E;font-family:'Inter',system-ui,sans-serif;">${items[itemId]}</td>
+      <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#1B6B3A;font-family:'Inter',system-ui,sans-serif;">${delivered[itemId]||0}</td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('print-area').innerHTML = `
+    <div style="font-family:'Inter',system-ui,sans-serif;font-size:9px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1A1A2E;padding-bottom:4px;margin-bottom:6px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#C8102E;text-transform:uppercase;letter-spacing:0.05em;font-family:'Libre Baskerville',Georgia,serif;">DARIEN ADD-ON ORDER</div>
+          <div style="font-size:8px;font-weight:700;text-transform:uppercase;color:#333;margin-top:2px;letter-spacing:0.06em;">${addon.week_label}</div>
+        </div>
+        <div style="text-align:right;font-size:8px;color:#555;line-height:1.7;">
+          <div>Date: ${dateStr}</div>
+          <div>Requested by: ${addon.requested_by||'Unnamed'}</div>
+        </div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:9px;table-layout:fixed;">
+        <tbody>
+          <tr>
+            <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:40%;">Item</td>
+            <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:25%;">Unit</td>
+            <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:17%;">Needed</td>
+            <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:18%;">Delivered</td>
+          </tr>
+          ${rows}
+        </tbody>
+      </table>
+    </div>`;
+  window.print();
 }
 
 function showSetupModal(lk){
