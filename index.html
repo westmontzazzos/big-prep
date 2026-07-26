@@ -118,6 +118,8 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
+const APP_VERSION = '2.1';
+
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
 const CATEGORIES = [
@@ -190,6 +192,7 @@ async function showHome(){
   app.innerHTML = `
     <div class="Login">
       <div>
+        <div style="font-size:11px;font-weight:700;color:#999;text-align:center;letter-spacing:0.1em;margin-bottom:4px;">v${APP_VERSION}</div>
         <div class="Login-logo">Zazzo's</div>
         <div style="font-family:'Libre Baskerville',Georgia,serif;font-size:22px;font-weight:700;color:#111;text-align:center;margin-top:4px;">Big Prep</div>
         <div class="Login-tag">Westmont · Darien</div>
