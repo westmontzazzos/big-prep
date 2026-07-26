@@ -62,6 +62,7 @@
     .ProdRow-info{flex:1;min-width:0;}
     .ProdRow-name{font-size:13px;font-weight:600;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .ProdRow-meta{font-size:11px;color:#777;margin-top:1px;}
+    .ProdRow-total{color:#1B6B3A;font-weight:700;}
 
     .DualInput{display:flex;gap:5px;flex-shrink:0;}
     .IG{display:flex;flex-direction:column;align-items:center;gap:2px;}
@@ -117,38 +118,41 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
+// mult = how many baseUnit are in ONE counted container (bag/bucket/group)
+// baseUnit = the real-world unit that mult converts into, for on-hand totals
 const CATEGORIES = [
   {name:'Sauces', items:[
-    {id:'alfredo',name:'Alfredo',unit:'5-gal bucket'},
-    {id:'soup',name:'Soup',unit:'5-gal bucket'},
+    {id:'alfredo',name:'Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal'},
+    {id:'soup',name:'Soup',unit:'5-gal bucket', mult:5, baseUnit:'gal'},
   ]},
   {name:'Pasta', items:[
-    {id:'lasagna',name:'Lasagna',unit:'each'},
+    {id:'lasagna',name:'Lasagna',unit:'each', mult:1, baseUnit:'ct'},
   ]},
   {name:'Beef', items:[
-    {id:'ground_beef',name:'Ground Beef',unit:'5 lb bag'},
-    {id:'sliced_beef',name:'Sliced Beef',unit:'5 lb bag'},
+    {id:'ground_beef',name:'Ground Beef',unit:'5 lb bag', mult:5, baseUnit:'lb'},
+    {id:'sliced_beef',name:'Sliced Beef',unit:'5 lb bag', mult:5, baseUnit:'lb'},
   ]},
   {name:'Sausage & Meatballs', items:[
-    {id:'sausage_links',name:'Sausage Links',unit:'bag of 7'},
-    {id:'meatballs',name:'Meatballs',unit:'bag of 8'},
+    {id:'sausage_links',name:'Sausage Links',unit:'bag of 7', mult:7, baseUnit:'ct'},
+    {id:'meatballs',name:'Meatballs',unit:'bag of 8', mult:8, baseUnit:'ct'},
   ]},
   {name:'Chicken', items:[
-    {id:'chicken_parm',name:'Chicken Parm',unit:'bag of 18'},
-    {id:'grilled_chicken',name:'Grilled Chicken',unit:'10 lb bag'},
-    {id:'lemon_chicken',name:'Lemon Chicken',unit:'group of 10'},
+    {id:'chicken_parm',name:'Chicken Parm',unit:'bag of 18', mult:18, baseUnit:'ct'},
+    {id:'grilled_chicken',name:'Grilled Chicken',unit:'10 lb bag', mult:10, baseUnit:'lb'},
+    {id:'lemon_chicken',name:'Lemon Chicken',unit:'group of 10', mult:10, baseUnit:'ct'},
   ]},
   {name:'Frozen Pizza', items:[
-    {id:'pizza_cheese',name:'Cheese',unit:'each'},
-    {id:'pizza_sausage',name:'Sausage',unit:'each'},
-    {id:'pizza_pepperoni',name:'Pepperoni',unit:'each'},
+    {id:'pizza_cheese',name:'Cheese',unit:'each', mult:1, baseUnit:'ct'},
+    {id:'pizza_sausage',name:'Sausage',unit:'each', mult:1, baseUnit:'ct'},
+    {id:'pizza_pepperoni',name:'Pepperoni',unit:'each', mult:1, baseUnit:'ct'},
   ]},
 ];
 const ALL_ITEMS = CATEGORIES.flatMap(c=>c.items);
+const ITEM_BY_ID = Object.fromEntries(ALL_ITEMS.map(i=>[i.id,i]));
 
 const LOCATIONS = {
   westmont:{name:'Westmont', emoji:'🍳', sub:'Production count', fieldLabel:'Made'},
-  darien:{name:'Darien', emoji:'📦', sub:'On-hand count', fieldLabel:'On Hand'},
+  darien:{name:'Darien', emoji:'📦', sub:'Order count', fieldLabel:'Order'},
 };
 
 // ─── STATE ───────────────────────────────────────────────────────────────────
@@ -272,10 +276,11 @@ function showCount(){
 
     const rows = cat.items.map((item,idx)=>{
       const val=session.counts[item.id] ?? '';
+      const totalTxt = val!=='' ? ('= '+(Number(val)*item.mult)+' '+item.baseUnit) : '';
       return `<div class="ProdRow">
         <div class="ProdRow-info">
           <div class="ProdRow-name">${item.name}</div>
-          <div class="ProdRow-meta">${item.unit}</div>
+          <div class="ProdRow-meta">${item.unit}${totalTxt?' · <span class="ProdRow-total" data-total="'+item.id+'">'+totalTxt+'</span>':'<span class="ProdRow-total" data-total="'+item.id+'"></span>'}</div>
         </div>
         <div class="DualInput">
           <div class="IG"><label>${l.fieldLabel}</label>
@@ -303,6 +308,7 @@ function showCount(){
     <header class="H no-print">
       <div class="H-logo">${l.name}</div>
       <div class="H-right">
+        ${activeLoc==='westmont' ? '<button class="B B-ghost" id="bStock">📦 Stock</button>' : ''}
         <button class="B B-ghost" id="bAvg">📊 Averages</button>
         <button class="B B-ghost" id="bHome">← Home</button>
       </div>
@@ -320,6 +326,7 @@ function showCount(){
 
   document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>showHome();
   document.getElementById('bAvg').onclick=()=>showAverages();
+  if(activeLoc==='westmont') document.getElementById('bStock').onclick=()=>showStock();
   document.getElementById('bClear').onclick=()=>{
     showModal('Clear this count?','This erases every entry for '+session.week_label+' at '+l.name+'. The session stays open so you can start over.',[
       {l:'Cancel',c:'B-outline',fn:closeModal},
@@ -354,6 +361,7 @@ function showCount(){
       input.classList.toggle('filled', input.value!=='');
       refreshBadge(cat);
       refreshFooter();
+      refreshTotal(itemId);
       queueSave();
 
       if(input.value!==''){
@@ -385,6 +393,13 @@ function refreshFooter(){
   if(!prog) return;
   prog.textContent = allComplete() ? 'All counted! 🎉' : totalCounted()+' / '+totalItems()+' items';
 }
+function refreshTotal(itemId){
+  const el=document.querySelector(`[data-total="${itemId}"]`);
+  if(!el) return;
+  const item=ITEM_BY_ID[itemId];
+  const val=session.counts[itemId];
+  el.textContent = (val!=='' && val!=null) ? ('= '+(Number(val)*item.mult)+' '+item.baseUnit) : '';
+}
 
 function queueSave(){
   clearTimeout(saveTimer);
@@ -408,18 +423,21 @@ function doPrint(finalSession, loc){
   const date=new Date(finalSession.completed_at).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   let tableRows='';
   CATEGORIES.forEach(cat=>{
-    tableRows+=`<tr><td colspan="3" style="background:#1A1A2E;color:#fff;font-weight:700;padding:4px 8px;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;border-top:2px solid #000;border-bottom:2px solid #000;">${cat.name}</td></tr>
+    tableRows+=`<tr><td colspan="4" style="background:#1A1A2E;color:#fff;font-weight:700;padding:4px 8px;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;border-top:2px solid #000;border-bottom:2px solid #000;">${cat.name}</td></tr>
     <tr>
-      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:50%;border-right:1px solid #8B0000;">Item</td>
-      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:30%;border-right:1px solid #8B0000;">Unit</td>
-      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;">${loc.fieldLabel}</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:40%;border-right:1px solid #8B0000;">Item</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:25%;border-right:1px solid #8B0000;">Unit</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:17%;border-right:1px solid #8B0000;">${loc.fieldLabel}</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:18%;">Total</td>
     </tr>`;
     cat.items.forEach(item=>{
       const val=finalSession.counts[item.id] ?? '';
+      const totalTxt = val!=='' ? (Number(val)*item.mult)+' '+item.baseUnit : '';
       tableRows+=`<tr>
         <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;font-family:'Inter',system-ui,sans-serif;">${item.name}</td>
         <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;color:#555;font-family:'Inter',system-ui,sans-serif;">${item.unit}</td>
         <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#C8102E;font-family:'Inter',system-ui,sans-serif;">${val}</td>
+        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#1B6B3A;font-family:'Inter',system-ui,sans-serif;">${totalTxt}</td>
       </tr>`;
     });
   });
@@ -458,6 +476,41 @@ async function showAverages(){
     return `<div class="AvgRow"><div class="AvgRow-name">${item.name}</div><div class="AvgRow-val">${avg.toFixed(1)}</div></div>`;
   }).join('');
   body.innerHTML = `<div style="font-size:11px;color:#999;margin-bottom:8px;">Based on last ${data.length} completed week${data.length!==1?'s':''}</div>${rows}`;
+}
+
+// ─── CURRENT STOCK (Westmont) ────────────────────────────────────────────────
+// Logic: take the most recent completed Westmont physical count (Friday or
+// Monday) as ground truth, converted to base units (lb / gal / ct). Then
+// subtract any Darien orders completed AFTER that count — those are the
+// Sunday orders that get shipped out and haven't been physically recounted
+// yet. The result is the expected on-hand right now.
+async function showStock(){
+  showModal('Current Stock — Westmont', `<div id="stockBody">Loading…</div>`, [
+    {l:'Close',c:'B-outline',fn:closeModal},
+  ]);
+  const {data:wData,error:wErr}=await sb.from(TABLE).select('*').eq('location','westmont').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
+  const body=document.getElementById('stockBody');
+  if(!body) return;
+  if(wErr){ body.textContent='Could not load stock.'; return; }
+  if(!wData || wData.length===0){ body.textContent='No completed Westmont count yet — finish a count first.'; return; }
+  const lastCount=wData[0];
+  const {data:dOrders,error:dErr}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').gt('completed_at',lastCount.completed_at).order('completed_at',{ascending:true});
+  if(dErr){ body.textContent='Could not load Darien orders.'; return; }
+
+  const lastDate=new Date(lastCount.completed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const rows = ALL_ITEMS.map(item=>{
+    const onHandBase = Number(lastCount.counts?.[item.id]||0) * item.mult;
+    const shipped = (dOrders||[]).reduce((sum,o)=>sum + Number(o.counts?.[item.id]||0)*item.mult, 0);
+    const expected = onHandBase - shipped;
+    const negative = expected < 0;
+    return `<div class="AvgRow"><div class="AvgRow-name">${item.name}</div><div class="AvgRow-val" style="color:${negative?'#C8102E':'#1B6B3A'};">${expected} ${item.baseUnit}</div></div>`;
+  }).join('');
+
+  const orderNote = (dOrders && dOrders.length)
+    ? `Deducting ${dOrders.length} Darien order${dOrders.length!==1?'s':''} since then: ${dOrders.map(o=>o.week_label).join(', ')}.`
+    : `No Darien orders logged since then yet.`;
+
+  body.innerHTML = `<div style="font-size:11px;color:#999;margin-bottom:8px;">Based on the ${lastCount.week_label} count (${lastDate}). ${orderNote}</div>${rows}`;
 }
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
