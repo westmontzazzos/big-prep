@@ -118,7 +118,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '3.0';
+const APP_VERSION = '3.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -188,6 +188,14 @@ function defaultWeekLabel(){
   const d=new Date(); const day=d.getDay();
   const monday=new Date(d); monday.setDate(d.getDate()-((day+6)%7));
   return 'Week of '+monday.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+}
+function mondayOf(d){
+  const day=d.getDay();
+  const diff=(day+6)%7; // days since Monday (Mon=0 ... Sun=6)
+  const mon=new Date(d);
+  mon.setHours(0,0,0,0);
+  mon.setDate(mon.getDate()-diff);
+  return mon;
 }
 
 function catFilledCount(cat){ return cat.items.filter(i=>(session.counts[i.id]??'')!=='' ).length; }
@@ -369,9 +377,15 @@ function showSetupModal(lk){
   app.innerHTML = `<div class="Login"><div class="Login-logo" style="font-size:32px;">${l.name}</div></div>`;
   const el=document.createElement('div');
   el.className='Overlay'; el.id='modal';
+  const todayMonday=mondayOf(new Date());
+  const isoDefault=todayMonday.toISOString().slice(0,10);
   el.innerHTML = `<div class="Modal">
     <div class="Modal-title">${testMode?'🧪 ':''}Start counting — ${l.name}${testMode?' (test)':''}</div>
-    <div class="Modal-field"><label>Week</label><input id="setupWeek" value="${defaultWeekLabel()}"></div>
+    <div class="Modal-field">
+      <label>Week (pick any day — snaps to that week's Monday)</label>
+      <input type="date" id="setupWeekDate" value="${isoDefault}">
+      <div id="setupWeekPreview" style="font-size:12px;color:#1B6B3A;font-weight:700;margin-top:6px;"></div>
+    </div>
     <div class="Modal-field"><label>Counter's name</label><input id="setupName" placeholder="e.g. Maria"></div>
     <div class="Modal-actions">
       <button class="B B-outline" id="setupCancel">Cancel</button>
@@ -379,20 +393,36 @@ function showSetupModal(lk){
     </div>
   </div>`;
   document.body.appendChild(el);
+
+  function updateWeekPreview(){
+    const raw=document.getElementById('setupWeekDate').value;
+    const preview=document.getElementById('setupWeekPreview');
+    if(!raw || !preview) return;
+    const picked=new Date(raw+'T00:00:00');
+    const mon=mondayOf(picked);
+    const wk=weekNumberForDate(mon);
+    preview.textContent = 'Week '+wk+' · '+weekRangeLabel(wk);
+  }
+  document.getElementById('setupWeekDate').oninput=updateWeekPreview;
+  updateWeekPreview();
+
   document.getElementById('setupCancel').onclick=()=>{ closeModal(); showDashboard(lk); };
   document.getElementById('setupStart').onclick=async ()=>{
-    const week=document.getElementById('setupWeek').value.trim()||defaultWeekLabel();
+    const raw=document.getElementById('setupWeekDate').value;
+    const picked = raw ? new Date(raw+'T00:00:00') : new Date();
+    const monday = mondayOf(picked);
+    const week = 'Week of '+monday.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     const counter=document.getElementById('setupName').value.trim()||'Unnamed';
     closeModal();
     if(testMode){
-      session={id:'test-'+Date.now(), location:lk, week_label:week, counter_name:counter, counts:{}, status:'in_progress'};
+      session={id:'test-'+Date.now(), location:lk, week_label:week, counter_name:counter, counts:{}, status:'in_progress', started_at:monday.toISOString()};
       testSessions[lk]=session;
       openCat=CATEGORIES[0].name;
       showCount();
       return;
     }
     showLoading();
-    const {data,error}=await sb.from(TABLE).insert({location:lk,week_label:week,counter_name:counter,counts:{},status:'in_progress'}).select().single();
+    const {data,error}=await sb.from(TABLE).insert({location:lk,week_label:week,counter_name:counter,counts:{},status:'in_progress',started_at:monday.toISOString()}).select().single();
     if(error){ alert('Could not start session: '+error.message); showDashboard(lk); return; }
     session=data; session.counts=session.counts||{};
     openCat=CATEGORIES[0].name;
