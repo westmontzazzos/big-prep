@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '4.0';
+const APP_VERSION = '5.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -193,6 +193,13 @@ async function loadPars(lk){
   const map={};
   data.forEach(r=>{ map[r.item_id]=Number(r.par); });
   return map;
+}
+
+async function getPendingDarienOrders(){
+  if(testMode) return [];
+  const {data,error}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').eq('acknowledged',false).order('completed_at',{ascending:false});
+  if(error) return []; // e.g. column not migrated yet — fail quietly, don't break the app
+  return data||[];
 }
 
 function defaultWeekLabel(){
@@ -308,6 +315,7 @@ async function showDashboard(lk){
     if(!error) sessions=data||[];
   }
   const pars = await loadPars(lk);
+  const pendingDarien = lk==='westmont' ? await getPendingDarienOrders() : [];
 
   const curWeek=currentWeekNumber();
   if(selectedWeek==null || selectedWeek>curWeek) selectedWeek=curWeek;
@@ -362,15 +370,20 @@ async function showDashboard(lk){
     <header class="H no-print">
       <div class="H-logo">${l.name}</div>
       <div class="H-right">
+        ${lk==='westmont' ? `<button class="B ${pendingDarien.length?'B-red':'B-ghost'}" id="bDarienOrders">📦 Darien${pendingDarien.length?' ('+pendingDarien.length+')':''}</button>` : ''}
         <button class="B B-ghost" id="bDashHome">🏠 Home</button>
       </div>
     </header>
     <div class="Page" style="padding-top:12px;">
       ${testMode?'<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🧪 TEST MODE — showing test data only</div>':''}
+      ${lk==='westmont' && pendingDarien.length ? `<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🔔 Darien has ${pendingDarien.length} order${pendingDarien.length!==1?'s':''} awaiting review — tap 📦 Darien above</div>` : ''}
       <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;">
         ${weekTabs.map(w=>`<button class="B ${w===selectedWeek?'B-red':'B-outline'}" data-week="${w}" style="flex-shrink:0;">Week ${w}</button>`).join('')}
       </div>
-      <div style="font-size:12px;color:#777;font-weight:600;margin-bottom:14px;">${weekRangeLabel(selectedWeek)}${selectedWeek===curWeek?' · current week':''}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <div style="font-size:12px;color:#777;font-weight:600;">${weekRangeLabel(selectedWeek)}${selectedWeek===curWeek?' · current week':''}</div>
+        ${activeSession && activeSession.status==='completed' ? '<button class="B B-outline" id="bDashPrint" style="height:28px;padding:0 10px;font-size:11px;">🖨 Print</button>' : ''}
+      </div>
       <div class="LocBlock">${rows}</div>
     </div>
     <div class="Footer no-print">
@@ -383,6 +396,72 @@ async function showDashboard(lk){
   document.getElementById('bDashAction').onclick=()=>goToCounting(lk);
   document.querySelectorAll('[data-week]').forEach(btn=>{
     btn.onclick=()=>{ selectedWeek=Number(btn.dataset.week); showDashboard(lk); };
+  });
+  if(document.getElementById('bDashPrint')){
+    document.getElementById('bDashPrint').onclick=async ()=>{
+      if(lk==='darien') currentPars=await loadPars('darien');
+      doPrint(activeSession, LOCATIONS[lk], lk);
+    };
+  }
+  if(lk==='westmont'){
+    document.getElementById('bDarienOrders').onclick=()=>showDarienOrders();
+    if(pendingDarien.length && !window.__darienPopupShown){
+      window.__darienPopupShown=true; // don't stack popups if they navigate back and forth quickly
+      const o=pendingDarien[0];
+      showModal('🔔 Darien order needs review', `Darien placed an order for <strong>${o.week_label}</strong>${pendingDarien.length>1?' (plus '+(pendingDarien.length-1)+' more)':''}. Tap "Review Now" to see the quantities and acknowledge it.`, [
+        {l:'Later',c:'B-outline',fn:closeModal},
+        {l:'Review Now',c:'B-red',fn:()=>{ closeModal(); showDarienOrders(); }},
+      ]);
+    }
+  }
+}
+
+// ─── DARIEN ORDERS REVIEW (Westmont side) ───────────────────────────────────
+async function showDarienOrders(){
+  showLoading();
+  currentPars = await loadPars('darien');
+  const {data,error}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(20);
+  const orders=error ? [] : (data||[]);
+
+  const rows = orders.map(o=>{
+    const acked = !!o.acknowledged;
+    const certBy = o.counts?._certified_by;
+    const dateStr = new Date(o.completed_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    return `<div class="LocBlock" style="margin-bottom:10px;">
+      <div style="padding:14px 16px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>
+            <div class="LocHeader-name">${o.week_label}</div>
+            <div class="LocHeader-meta">Completed ${dateStr}${certBy?' · Certified by '+certBy:''}</div>
+          </div>
+          <span class="LocHeader-badge ${acked?'badge-done':'badge-active'}">${acked?'✓ Acknowledged':'Needs Review'}</span>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:12px;">
+          <button class="B B-outline" data-print="${o.id}" style="flex:1;justify-content:center;">🖨 Print</button>
+          ${!acked ? `<button class="B B-red" data-ack="${o.id}" style="flex:1;justify-content:center;">✅ Acknowledge</button>` : ''}
+        </div>
+      </div>
+    </div>`;
+  }).join('') || `<div style="text-align:center;color:#999;font-size:13px;padding:30px 0;">No Darien orders yet.</div>`;
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Darien Orders</div>
+      <div class="H-right">
+        <button class="B B-ghost" id="bBackDash">← Westmont</button>
+      </div>
+    </header>
+    <div class="Page" style="padding-top:12px;">${rows}</div>`;
+
+  document.getElementById('bBackDash').onclick=()=>showDashboard('westmont');
+  orders.forEach(o=>{
+    const printBtn=document.querySelector(`[data-print="${o.id}"]`);
+    if(printBtn) printBtn.onclick=()=>doPrint(o, LOCATIONS.darien, 'darien');
+    const ackBtn=document.querySelector(`[data-ack="${o.id}"]`);
+    if(ackBtn) ackBtn.onclick=async ()=>{
+      await sb.from(TABLE).update({acknowledged:true, acknowledged_at:new Date().toISOString()}).eq('id',o.id);
+      showDarienOrders();
+    };
   });
 }
 
@@ -543,10 +622,7 @@ function showCount(){
   };
   document.getElementById('bFinish').onclick=()=>{
     if(activeLoc==='darien'){
-      showModal('Confirm this order?','By confirming, you\'re stating you reviewed the on-hand counts and the auto-filled amounts to order below, and they\'re accurate. This locks in '+session.week_label+', opens a printable order sheet, and resets Darien back to zero for next time.',[
-        {l:'Cancel',c:'B-outline',fn:closeModal},
-        {l:'I Confirm — Accurate',c:'B-red',fn:async ()=>{ closeModal(); await finishAndPrint(); }},
-      ]);
+      showCertifyModal();
       return;
     }
     showModal('Finish this count?','This saves the final counts for '+session.week_label+', opens a printable ticket, and resets '+l.name+' back to zero for next time.',[
@@ -568,6 +644,7 @@ function showCount(){
     };
   });
 
+  let advanceTimer=null;
   const allInputs=[...document.querySelectorAll('.SI')];
   allInputs.forEach((input,i)=>{
     input.oninput=()=>{
@@ -580,15 +657,19 @@ function showCount(){
       refreshNeed(itemId);
       queueSave();
 
+      clearTimeout(advanceTimer);
       if(input.value!==''){
-        const next=allInputs[i+1];
-        if(next && next.dataset.cat===cat) setTimeout(()=>next.focus(),10);
+        // wait for a pause in typing (not just the first digit) before jumping ahead
+        advanceTimer=setTimeout(()=>{
+          const next=allInputs[i+1];
+          if(next && next.dataset.cat===cat) next.focus();
+        },900);
       }
       const catObj=CATEGORIES.find(c=>c.name===cat);
       if(catComplete(catObj)){
         const ci=CATEGORIES.indexOf(catObj), nextCat=CATEGORIES[ci+1];
         if(nextCat && openCat===cat){
-          setTimeout(()=>{ openCat=nextCat.name; showCount(); document.getElementById('cb-'+(ci+1))?.scrollIntoView({behavior:'smooth',block:'start'}); },350);
+          setTimeout(()=>{ openCat=nextCat.name; showCount(); document.getElementById('cb-'+(ci+1))?.scrollIntoView({behavior:'smooth',block:'start'}); },900);
         }
       }
     };
@@ -637,18 +718,19 @@ async function saveCounts(){
 }
 
 // ─── FINISH + PRINT ──────────────────────────────────────────────────────────
-async function finishAndPrint(){
+async function finishAndPrint(cert){
   const completedAt=new Date().toISOString();
   const lk=activeLoc;
+  const counts = cert ? {...session.counts, _certified_by:cert.certifiedBy, _certified_at:cert.certifiedAt} : session.counts;
   if(testMode){
-    doPrint({...session, completed_at:completedAt}, LOCATIONS[lk], lk);
+    doPrint({...session, counts, completed_at:completedAt}, LOCATIONS[lk], lk);
     testSessions[lk]=null;
     showDashboard(lk);
     return;
   }
   showLoading();
-  await sb.from(TABLE).update({counts:session.counts, status:'completed', completed_at:completedAt}).eq('id',session.id);
-  doPrint({...session, completed_at:completedAt}, LOCATIONS[lk], lk);
+  await sb.from(TABLE).update({counts, status:'completed', completed_at:completedAt}).eq('id',session.id);
+  doPrint({...session, counts, completed_at:completedAt}, LOCATIONS[lk], lk);
   showDashboard(lk);
 }
 
@@ -702,6 +784,7 @@ function doPrint(finalSession, loc, lk){
         <div style="text-align:right;font-size:8px;color:#555;line-height:1.7;">
           <div>Date: ${date}</div>
           <div>Counted by: ${finalSession.counter_name}</div>
+          ${isDarien && finalSession.counts?._certified_by ? `<div style="color:#1B6B3A;font-weight:700;">Certified by: ${finalSession.counts._certified_by}</div><div>Certified: ${new Date(finalSession.counts._certified_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>` : ''}
         </div>
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:9px;table-layout:fixed;"><tbody>${tableRows}</tbody></table>
@@ -777,6 +860,45 @@ function showModal(title, body, btns){
   el.querySelectorAll('[data-i]').forEach(b=>b.onclick=()=>btns[+b.dataset.i].fn());
 }
 function closeModal(){ document.getElementById('modal')?.remove(); }
+
+// ─── CERTIFICATION (Darien order sign-off) ──────────────────────────────────
+function showCertifyModal(){
+  closeModal();
+  const el=document.createElement('div');
+  el.className='Overlay'; el.id='modal';
+  el.innerHTML = `<div class="Modal">
+    <div class="Modal-title">Certify this order</div>
+    <div class="Modal-body">I acknowledge and have reviewed the quantities to be ordered below and verify that they are correct.</div>
+    <div class="Modal-field">
+      <label>Certified by</label>
+      <input id="certifyName" value="${(session.counter_name||'').replace(/"/g,'&quot;')}" placeholder="Your name">
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 18px;">
+      <input type="checkbox" id="certifyCheck" style="width:22px;height:22px;margin-top:2px;flex-shrink:0;accent-color:#C8102E;">
+      <label for="certifyCheck" style="font-size:13px;color:#444;line-height:1.45;">I certify that I have reviewed these quantities and they are accurate.</label>
+    </div>
+    <div class="Modal-actions">
+      <button class="B B-outline" id="certifyCancel">Cancel</button>
+      <button class="B B-red" id="certifyOk" disabled style="opacity:0.35;">OK</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+
+  const checkbox=document.getElementById('certifyCheck');
+  const okBtn=document.getElementById('certifyOk');
+  checkbox.onchange=()=>{
+    okBtn.disabled=!checkbox.checked;
+    okBtn.style.opacity=checkbox.checked?'1':'0.35';
+  };
+  document.getElementById('certifyCancel').onclick=closeModal;
+  okBtn.onclick=async ()=>{
+    if(!checkbox.checked) return;
+    const name=document.getElementById('certifyName').value.trim()||session.counter_name||'Unnamed';
+    const certifiedAt=new Date().toISOString();
+    closeModal();
+    await finishAndPrint({certifiedBy:name, certifiedAt});
+  };
+}
 </script>
 </body>
 </html>
