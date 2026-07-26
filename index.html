@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '6.1';
+const APP_VERSION = '7.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -336,6 +336,22 @@ async function showDashboard(lk){
   const pars = await loadPars(lk);
   const pendingDarien = lk==='westmont' ? await getPendingDarienOrders() : [];
 
+  // What Westmont currently owes Darien — always the single most recent
+  // Darien order, since older ones are just kept for average/history purposes.
+  let darienNeedMap={};
+  if(lk==='westmont' && !testMode){
+    const {data:latestD}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
+    if(latestD && latestD.length){
+      const darienPars=await loadPars('darien');
+      ALL_ITEMS.forEach(item=>{
+        const par=darienPars[item.id];
+        if(par==null) return;
+        const onHand=Number(latestD[0].counts?.[item.id]||0);
+        darienNeedMap[item.id]=Math.max(par-onHand,0);
+      });
+    }
+  }
+
   const curWeek=currentWeekNumber();
   if(selectedWeek==null || selectedWeek>curWeek) selectedWeek=curWeek;
 
@@ -372,10 +388,26 @@ async function showDashboard(lk){
     const avgTxt = averages[item.id]!=null ? averages[item.id].toFixed(1) : '—';
     const parTxt = pars[item.id]!=null ? pars[item.id] : '—';
     const inProgTag = activeSession && activeSession.status==='in_progress' ? ' <span style="color:#C8102E;font-weight:700;">(in progress)</span>' : '';
+
+    let darienLine='';
+    if(lk==='westmont' && selectedWeek===curWeek){
+      const need=darienNeedMap[item.id];
+      if(need!=null && need>0){
+        const needBase=need*item.mult;
+        if(countVal!==''){
+          const trueCount=Number(countVal)*item.mult-needBase;
+          darienLine=`<div style="font-size:11px;margin-top:4px;font-weight:700;color:${trueCount<0?'#C8102E':'#1B6B3A'};">🚚 ${needBase} ${item.baseUnit} to Darien · True count: ${trueCount} ${item.baseUnit}</div>`;
+        } else {
+          darienLine=`<div style="font-size:11px;margin-top:4px;color:#999;">🚚 Darien needs ${needBase} ${item.baseUnit} — no Westmont count yet this week</div>`;
+        }
+      }
+    }
+
     return `<div class="ProdRow">
       <div class="ProdRow-info">
         <div class="ProdRow-name">${item.name}</div>
         <div class="ProdRow-meta">${item.unit}</div>
+        ${darienLine}
       </div>
       <div style="display:flex;gap:14px;text-align:center;flex-shrink:0;">
         <div style="width:44px;"><div style="font-size:9px;color:#999;text-transform:uppercase;font-weight:700;">Par</div><div style="font-size:13px;color:${pars[item.id]!=null?'#111':'#ccc'};font-weight:${pars[item.id]!=null?'700':'400'};">${parTxt}</div></div>
@@ -629,7 +661,6 @@ function showCount(){
     <header class="H no-print">
       <div class="H-logo">${l.name}</div>
       <div class="H-right">
-        ${activeLoc==='westmont' ? '<button class="B B-ghost" id="bStock">📦 Stock</button>' : ''}
         <button class="B B-ghost" id="bAvg">📊 Averages</button>
         <button class="B B-ghost" id="bHome">← Dashboard</button>
       </div>
@@ -649,7 +680,6 @@ function showCount(){
 
   document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>showDashboard(activeLoc);
   document.getElementById('bAvg').onclick=()=>showAverages();
-  if(activeLoc==='westmont') document.getElementById('bStock').onclick=()=>showStock();
   document.getElementById('bClear').onclick=()=>{
     showModal('Clear this count?','This erases every entry for '+session.week_label+' at '+l.name+'. The session stays open so you can start over.',[
       {l:'Cancel',c:'B-outline',fn:closeModal},
@@ -845,41 +875,6 @@ async function showAverages(){
     return `<div class="AvgRow"><div class="AvgRow-name">${item.name}</div><div class="AvgRow-val">${avg.toFixed(1)}</div></div>`;
   }).join('');
   body.innerHTML = `<div style="font-size:11px;color:#999;margin-bottom:8px;">Based on last ${data.length} completed week${data.length!==1?'s':''}</div>${rows}`;
-}
-
-// ─── CURRENT STOCK (Westmont) ────────────────────────────────────────────────
-// Logic: take the most recent completed Westmont physical count (Friday or
-// Monday) as ground truth, converted to base units (lb / gal / ct). Then
-// subtract any Darien orders completed AFTER that count — those are the
-// Sunday orders that get shipped out and haven't been physically recounted
-// yet. The result is the expected on-hand right now.
-async function showStock(){
-  showModal('Current Stock — Westmont', `<div id="stockBody">Loading…</div>`, [
-    {l:'Close',c:'B-outline',fn:closeModal},
-  ]);
-  const {data:wData,error:wErr}=await sb.from(TABLE).select('*').eq('location','westmont').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
-  const body=document.getElementById('stockBody');
-  if(!body) return;
-  if(wErr){ body.textContent='Could not load stock.'; return; }
-  if(!wData || wData.length===0){ body.textContent='No completed Westmont count yet — finish a count first.'; return; }
-  const lastCount=wData[0];
-  const {data:dOrders,error:dErr}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').gt('completed_at',lastCount.completed_at).order('completed_at',{ascending:true});
-  if(dErr){ body.textContent='Could not load Darien orders.'; return; }
-
-  const lastDate=new Date(lastCount.completed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
-  const rows = ALL_ITEMS.map(item=>{
-    const onHandBase = Number(lastCount.counts?.[item.id]||0) * item.mult;
-    const shipped = (dOrders||[]).reduce((sum,o)=>sum + Number(o.counts?.[item.id]||0)*item.mult, 0);
-    const expected = onHandBase - shipped;
-    const negative = expected < 0;
-    return `<div class="AvgRow"><div class="AvgRow-name">${item.name}</div><div class="AvgRow-val" style="color:${negative?'#C8102E':'#1B6B3A'};">${expected} ${item.baseUnit}</div></div>`;
-  }).join('');
-
-  const orderNote = (dOrders && dOrders.length)
-    ? `Deducting ${dOrders.length} Darien order${dOrders.length!==1?'s':''} since then: ${dOrders.map(o=>o.week_label).join(', ')}.`
-    : `No Darien orders logged since then yet.`;
-
-  body.innerHTML = `<div style="font-size:11px;color:#999;margin-bottom:8px;">Based on the ${lastCount.week_label} count (${lastDate}). ${orderNote}</div>${rows}`;
 }
 
 // ─── MODAL ───────────────────────────────────────────────────────────────────
