@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '11.8';
+const APP_VERSION = '12.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -467,12 +467,11 @@ async function showDashboard(lk){
       const need=darienNeedMap[item.id];
       if(need!=null && need>0){
         rowHighlight='background:#FFFBF0;';
-        darienCell=`<div style="width:50px;font-size:15px;font-weight:800;color:#8A6300;">${need}</div>`;
+        darienCell=`<div style="width:50px;font-size:13px;font-weight:700;color:#8A6300;">${need}</div>`;
         if(countVal!==''){
           const trueCount=Number(countVal)-need;
           const tc=trueCount<0?'#C8102E':'#1B6B3A';
-          const trueTotal=trueCount*item.mult;
-          trueCell=`<div style="width:64px;"><div style="font-size:17px;font-weight:800;color:${tc};">${trueCount}</div>${trueCount!==0?`<div style="font-size:9px;font-weight:700;color:${tc};">${trueTotal} ${item.baseUnit}</div>`:''}</div>`;
+          trueCell=`<div style="width:64px;font-size:13px;font-weight:700;color:${tc};">${trueCount}</div>`;
         } else {
           trueCell=`<div style="width:64px;font-size:13px;color:#999;">—</div>`;
         }
