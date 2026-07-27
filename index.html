@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '12.1';
+const APP_VERSION = '12.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -248,6 +248,40 @@ async function getDarienOwedMap(){
   return owed;
 }
 
+// Total committed to Darien THIS WEEK — main Need + every add-on tied to this
+// same week, regardless of whether it's already been delivered or not. Once
+// something is allocated to Darien, it's off Westmont's shelf whether the
+// physical delivery already happened or is still pending — so True Count
+// must subtract the full amount, not just what's still outstanding.
+async function getDarienAllocatedMap(){
+  if(testMode) return {};
+  const allocated={};
+  const {data:latestD}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
+  let weekLabel=null;
+  if(latestD && latestD.length){
+    weekLabel=latestD[0].week_label;
+    const darienPars=await loadPars('darien');
+    ALL_ITEMS.forEach(item=>{
+      const par=darienPars[item.id];
+      if(par==null) return;
+      const onHand=Number(latestD[0].counts?.[item.id]||0);
+      const need=Math.max(par-onHand,0);
+      if(need>0) allocated[item.id]=need;
+    });
+  }
+  if(weekLabel){
+    const {data:addons}=await sb.from('darien_addons').select('*').eq('week_label',weekLabel);
+    (addons||[]).forEach(a=>{
+      const items=a.items||{};
+      Object.keys(items).forEach(itemId=>{
+        const requested=Number(items[itemId]||0);
+        if(requested>0) allocated[itemId]=(allocated[itemId]||0)+requested;
+      });
+    });
+  }
+  return allocated;
+}
+
 
 function defaultWeekLabel(){
   const d=new Date(); const day=d.getDay();
@@ -365,14 +399,14 @@ async function editCompletedOrder(row){
   }
   openCat=CATEGORIES[0].name;
   currentPars=await loadPars(row.location);
-  currentDarienOwed = row.location==='westmont' ? await getDarienOwedMap() : {};
+  currentDarienOwed = row.location==='westmont' ? await getDarienAllocatedMap() : {};
   showCount();
 }
 
 async function goToCounting(lk){
   activeLoc=lk;
   if(testMode){
-    if(testSessions[lk]){ session=testSessions[lk]; openCat=CATEGORIES[0].name; currentPars=await loadPars(lk); currentDarienOwed = lk==='westmont' ? await getDarienOwedMap() : {}; showCount(); }
+    if(testSessions[lk]){ session=testSessions[lk]; openCat=CATEGORIES[0].name; currentPars=await loadPars(lk); currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {}; showCount(); }
     else showSetupModal(lk);
     return;
   }
@@ -383,7 +417,7 @@ async function goToCounting(lk){
     session.counts=session.counts||{};
     openCat=CATEGORIES[0].name;
     currentPars=await loadPars(lk);
-    currentDarienOwed = lk==='westmont' ? await getDarienOwedMap() : {};
+    currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
     showCount();
   } else {
     showSetupModal(lk);
@@ -409,7 +443,7 @@ async function showDashboard(lk){
   // What Westmont currently owes Darien — shared logic, also used on the
   // actual Count screen so the subtraction shows up while you're typing,
   // not just afterward on the dashboard.
-  const darienNeedMap = (lk==='westmont') ? await getDarienOwedMap() : {};
+  const darienNeedMap = (lk==='westmont') ? await getDarienAllocatedMap() : {};
 
   const curWeek=currentWeekNumber();
   if(selectedWeek==null || selectedWeek>curWeek) selectedWeek=curWeek;
@@ -938,7 +972,7 @@ function showSetupModal(lk){
       testSessions[lk]=session;
       openCat=CATEGORIES[0].name;
       currentPars=await loadPars(lk);
-      currentDarienOwed = lk==='westmont' ? await getDarienOwedMap() : {};
+      currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
       showCount();
       return;
     }
@@ -948,7 +982,7 @@ function showSetupModal(lk){
     session=data; session.counts=session.counts||{};
     openCat=CATEGORIES[0].name;
     currentPars=await loadPars(lk);
-    currentDarienOwed = lk==='westmont' ? await getDarienOwedMap() : {};
+    currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
     showCount();
   };
 }
