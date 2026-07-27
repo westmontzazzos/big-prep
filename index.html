@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '12.0';
+const APP_VERSION = '12.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -448,7 +448,7 @@ async function showDashboard(lk){
   const headerRow = `<div class="ProdRow" style="background:#F7F7F7;">
     <div class="ProdRow-info"><div style="font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Item</div></div>
     <div style="display:flex;gap:14px;align-items:center;text-align:center;flex-shrink:0;">
-      <div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Par</div>
+      ${lk==='westmont'?'':'<div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Par</div>'}
       <div style="width:54px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Count</div>
       ${showDarienCols?'<div style="width:50px;font-size:10px;color:#8A6300;font-weight:700;text-transform:uppercase;">− Darien</div><div style="width:64px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">True</div>':''}
       <div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Avg</div>
@@ -487,7 +487,7 @@ async function showDashboard(lk){
         <div class="ProdRow-meta">${item.unit}</div>
       </div>
       <div style="display:flex;gap:14px;align-items:center;text-align:center;flex-shrink:0;">
-        <div style="width:44px;font-size:13px;color:${pars[item.id]!=null?'#111':'#ccc'};font-weight:${pars[item.id]!=null?'700':'400'};">${parTxt}</div>
+        ${lk==='westmont'?'':`<div style="width:44px;font-size:13px;color:${pars[item.id]!=null?'#111':'#ccc'};font-weight:${pars[item.id]!=null?'700':'400'};">${parTxt}</div>`}
         <div style="width:54px;font-size:13px;font-weight:700;color:#111;">${countTxt}${inProgTag}</div>
         ${darienCell}${trueCell}
         <div style="width:44px;font-size:13px;font-weight:700;color:#C8102E;">${avgTxt}</div>
