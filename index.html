@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '11.2';
+const APP_VERSION = '11.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -354,13 +354,14 @@ async function openLocation(lk){
 // Westmont has to review + acknowledge the corrected numbers just like new.
 async function editCompletedOrder(row){
   activeLoc=row.location;
+  const originalCountsSnapshot = JSON.stringify(row.counts||{});
   if(testMode){
-    session={...row, counts:{...row.counts}, status:'in_progress'};
+    session={...row, counts:{...row.counts}, status:'in_progress', _originalCounts:originalCountsSnapshot};
     testSessions[row.location]=session;
   } else {
     showLoading();
     await sb.from(TABLE).update({status:'in_progress'}).eq('id',row.id);
-    session={...row, counts:{...row.counts}, status:'in_progress'};
+    session={...row, counts:{...row.counts}, status:'in_progress', _originalCounts:originalCountsSnapshot};
   }
   openCat=CATEGORIES[0].name;
   currentPars=await loadPars(row.location);
@@ -454,16 +455,16 @@ async function showDashboard(lk){
     if(lk==='westmont' && selectedWeek===curWeek){
       const need=darienNeedMap[item.id];
       if(need!=null && need>0){
-        const needBase=need*item.mult;
         rowHighlight='background:#FFFBF0;';
         if(countVal!==''){
-          const trueCount=Number(countVal)*item.mult-needBase;
+          const trueCount=Number(countVal)-need;
           const tc=trueCount<0?'#C8102E':'#1B6B3A';
+          const trueTotal=trueCount*item.mult;
           owedBoxes = `
-            <div style="width:50px;"><div style="font-size:9px;color:#8A6300;text-transform:uppercase;font-weight:700;">− Darien</div><div style="font-size:15px;font-weight:800;color:#8A6300;">${needBase}</div></div>
-            <div style="width:58px;"><div style="font-size:9px;color:${tc};text-transform:uppercase;font-weight:700;">True</div><div style="font-size:17px;font-weight:800;color:${tc};">${trueCount}</div></div>`;
+            <div style="width:50px;"><div style="font-size:9px;color:#8A6300;text-transform:uppercase;font-weight:700;">− Darien</div><div style="font-size:15px;font-weight:800;color:#8A6300;">${need}</div></div>
+            <div style="width:64px;"><div style="font-size:9px;color:${tc};text-transform:uppercase;font-weight:700;">True</div><div style="font-size:17px;font-weight:800;color:${tc};">${trueCount}</div><div style="font-size:10px;font-weight:700;color:${tc};">= ${trueTotal} ${item.baseUnit}</div></div>`;
         } else {
-          owedBoxes = `<div style="width:120px;text-align:right;"><div style="font-size:9px;color:#8A6300;text-transform:uppercase;font-weight:700;">Darien needs</div><div style="font-size:15px;font-weight:800;color:#8A6300;">${needBase} ${item.baseUnit}</div></div>`;
+          owedBoxes = `<div style="width:120px;text-align:right;"><div style="font-size:9px;color:#8A6300;text-transform:uppercase;font-weight:700;">Darien needs</div><div style="font-size:15px;font-weight:800;color:#8A6300;">${need} ${item.containerLabel==='each'?'each':item.containerLabel+(need!==1?'s':'')}</div></div>`;
         }
       }
     }
@@ -988,9 +989,8 @@ function showCount(){
 
       const owed = currentDarienOwed[item.id];
       const hasOwed = owed>0;
-      const owedBase = hasOwed ? owed*item.mult : 0;
-      const trueBase = (hasOwed && val!=='') ? Number(val)*item.mult-owedBase : null;
-      const trueColorVal = trueBase!=null ? (trueBase<0?'#C8102E':'#1B6B3A') : '#999';
+      const trueVal = (hasOwed && val!=='') ? Number(val)-owed : null;
+      const trueColorVal = trueVal!=null ? (trueVal<0?'#C8102E':'#1B6B3A') : '#999';
 
       return `<div class="ProdRow" style="${hasOwed?'background:#FFFBF0;':''}">
         <div class="ProdRow-info">
@@ -1004,10 +1004,10 @@ function showCount(){
           </div>
           ${hasOwed ? `
           <div class="IG"><label style="color:#8A6300;">− DARIEN</label>
-            <div class="SI-readonly" style="border-color:#8A6300;background:#FFF3D6;color:#8A6300;font-size:18px;" data-owed="${item.id}">${owedBase}</div>
+            <div class="SI-readonly" style="border-color:#8A6300;background:#FFF3D6;color:#8A6300;font-size:18px;" data-owed="${item.id}">${owed}</div>
           </div>
           <div class="IG"><label style="color:${trueColorVal};">TRUE COUNT</label>
-            <div class="SI-readonly" style="border-color:${trueColorVal};background:#fff;color:${trueColorVal};font-size:20px;font-weight:800;width:64px;" data-true="${item.id}">${trueBase!=null?trueBase:'—'}</div>
+            <div class="SI-readonly" style="border-color:${trueColorVal};background:#fff;color:${trueColorVal};font-size:20px;font-weight:800;width:64px;" data-true="${item.id}">${trueVal!=null?trueVal:'—'}</div>
           </div>` : ''}
         </div>
       </div>`;
@@ -1149,18 +1149,16 @@ function refreshTrue(itemId){
   if(!el) return;
   const owed=currentDarienOwed[itemId];
   if(!(owed>0)) return; // box doesn't exist for this item, nothing to update
-  const item=ITEM_BY_ID[itemId];
   const val=session.counts[itemId];
-  const owedBase=owed*item.mult;
   if(val==='' || val==null){
     el.textContent='—';
     el.style.color='#999';
     el.style.borderColor='#999';
     return;
   }
-  const trueBase=Number(val)*item.mult-owedBase;
-  const color = trueBase<0?'#C8102E':'#1B6B3A';
-  el.textContent=trueBase;
+  const trueVal=Number(val)-owed;
+  const color = trueVal<0?'#C8102E':'#1B6B3A';
+  el.textContent=trueVal;
   el.style.color=color;
   el.style.borderColor=color;
 }
