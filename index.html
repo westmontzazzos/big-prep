@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '12.3';
+const APP_VERSION = '12.4';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -478,12 +478,20 @@ async function showDashboard(lk){
   const activeSession=weekMap[selectedWeek];
 
   const showDarienCols = lk==='westmont' && selectedWeek===curWeek;
+  const showOrderedCol = lk==='darien' && selectedWeek===curWeek && activeSession;
+
+  let weekAddons=[];
+  if(showOrderedCol){
+    const {data}=await sb.from('darien_addons').select('*').eq('week_label',activeSession.week_label);
+    weekAddons=data||[];
+  }
 
   const headerRow = `<div class="ProdRow" style="background:#F7F7F7;">
     <div class="ProdRow-info"><div style="font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Item</div></div>
     <div style="display:flex;gap:14px;align-items:center;text-align:center;flex-shrink:0;">
       ${lk==='westmont'?'':'<div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Par</div>'}
       <div style="width:54px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Count</div>
+      ${showOrderedCol?'<div style="width:54px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">Ordered</div>':''}
       ${showDarienCols?'<div style="width:50px;font-size:10px;color:#8A6300;font-weight:700;text-transform:uppercase;">− Darien</div><div style="width:64px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">True</div>':''}
       <div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Avg</div>
     </div>
@@ -496,7 +504,35 @@ async function showDashboard(lk){
     const parTxt = pars[item.id]!=null ? pars[item.id] : '—';
     const inProgTag = activeSession && activeSession.status==='in_progress' ? ' <span style="color:#C8102E;font-weight:700;">(in progress)</span>' : '';
 
-    let darienCell='', trueCell='', rowHighlight='';
+    let orderedCell='', orderedHighlight='';
+    if(showOrderedCol){
+      const par=pars[item.id];
+      if(par!=null && countVal!==''){
+        const baseOrder=Math.max(par-Number(countVal),0);
+        let addonQty=0, addonDelivered=0, mainDelivered=Number((activeSession.delivered||{})[item.id]||0);
+        weekAddons.forEach(a=>{
+          const req=Number((a.items||{})[item.id]||0);
+          addonQty+=req;
+          addonDelivered+=Number((a.delivered||{})[item.id]||0);
+        });
+        const ordered=baseOrder+addonQty;
+        if(ordered>0){
+          const totalDelivered=mainDelivered+addonDelivered;
+          const received = totalDelivered>=ordered;
+          if(received) orderedHighlight='background:#E8F5ED;';
+          orderedCell=`<div style="width:54px;">
+            <div style="font-size:13px;font-weight:700;color:#1B6B3A;">${ordered}${received?' ✅':''}</div>
+            ${addonQty>0?`<div style="font-size:9px;font-weight:700;color:#1B6B3A;">+${addonQty}</div>`:''}
+          </div>`;
+        } else {
+          orderedCell=`<div style="width:54px;font-size:13px;color:#ccc;">—</div>`;
+        }
+      } else {
+        orderedCell=`<div style="width:54px;font-size:13px;color:#ccc;">—</div>`;
+      }
+    }
+
+    let darienCell='', trueCell='', rowHighlight=orderedHighlight;
     if(showDarienCols){
       const need=darienNeedMap[item.id];
       if(need!=null && need>0){
@@ -523,6 +559,7 @@ async function showDashboard(lk){
       <div style="display:flex;gap:14px;align-items:center;text-align:center;flex-shrink:0;">
         ${lk==='westmont'?'':`<div style="width:44px;font-size:13px;color:${pars[item.id]!=null?'#111':'#ccc'};font-weight:${pars[item.id]!=null?'700':'400'};">${parTxt}</div>`}
         <div style="width:54px;font-size:13px;font-weight:700;color:#111;">${countTxt}${inProgTag}</div>
+        ${orderedCell}
         ${darienCell}${trueCell}
         <div style="width:44px;font-size:13px;font-weight:700;color:#C8102E;">${avgTxt}</div>
       </div>
