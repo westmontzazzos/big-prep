@@ -119,36 +119,38 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '10.5';
+const APP_VERSION = '10.6';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
+// containerLabel = what you're actually counting (bucket/bag/etc) — used for
+// display, so it never has to be guessed out of the `unit` description text
 const CATEGORIES = [
   {name:'Sauces', items:[
-    {id:'alfredo',name:'Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal'},
-    {id:'soup',name:'Soup',unit:'5-gal bucket', mult:5, baseUnit:'gal'},
+    {id:'alfredo',name:'Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'soup',name:'Soup',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
   ]},
   {name:'Pasta', items:[
-    {id:'lasagna',name:'Lasagna',unit:'each', mult:1, baseUnit:'ct'},
+    {id:'lasagna',name:'Lasagna',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
   ]},
   {name:'Beef', items:[
-    {id:'ground_beef',name:'Ground Beef',unit:'5 lb bag', mult:5, baseUnit:'lb'},
-    {id:'sliced_beef',name:'Sliced Beef',unit:'5 lb bag', mult:5, baseUnit:'lb'},
+    {id:'ground_beef',name:'Ground Beef',unit:'5 lb bag', mult:5, baseUnit:'lb', containerLabel:'bag'},
+    {id:'sliced_beef',name:'Sliced Beef',unit:'5 lb bag', mult:5, baseUnit:'lb', containerLabel:'bag'},
   ]},
   {name:'Sausage & Meatballs', items:[
-    {id:'sausage_links',name:'Sausage Links',unit:'bag of 7', mult:7, baseUnit:'ct'},
-    {id:'meatballs',name:'Meatballs',unit:'bag of 8', mult:8, baseUnit:'ct'},
+    {id:'sausage_links',name:'Sausage Links',unit:'bag of 7', mult:7, baseUnit:'ct', containerLabel:'bag'},
+    {id:'meatballs',name:'Meatballs',unit:'bag of 8', mult:8, baseUnit:'ct', containerLabel:'bag'},
   ]},
   {name:'Meat and Chicken', items:[
-    {id:'chicken_parm',name:'Chicken Parm',unit:'bag of 18', mult:18, baseUnit:'ct'},
-    {id:'grilled_chicken',name:'Grilled Chicken',unit:'10 lb bag', mult:10, baseUnit:'lb'},
-    {id:'lemon_chicken',name:'Lemon Chicken',unit:'group of 10', mult:10, baseUnit:'ct'},
-    {id:'ribs',name:'Ribs',unit:'half slab (~0.875 lb)', mult:0.875, baseUnit:'lb'},
+    {id:'chicken_parm',name:'Chicken Parm',unit:'bag of 18', mult:18, baseUnit:'ct', containerLabel:'bag'},
+    {id:'grilled_chicken',name:'Grilled Chicken',unit:'10 lb bag', mult:10, baseUnit:'lb', containerLabel:'bag'},
+    {id:'lemon_chicken',name:'Lemon Chicken',unit:'group of 10', mult:10, baseUnit:'ct', containerLabel:'group'},
+    {id:'ribs',name:'Ribs',unit:'half slab (~0.875 lb)', mult:0.875, baseUnit:'lb', containerLabel:'half slab'},
   ]},
   {name:'Frozen Pizza', items:[
-    {id:'pizza_cheese',name:'Cheese',unit:'each', mult:1, baseUnit:'ct'},
-    {id:'pizza_sausage',name:'Sausage',unit:'each', mult:1, baseUnit:'ct'},
-    {id:'pizza_pepperoni',name:'Pepperoni',unit:'each', mult:1, baseUnit:'ct'},
+    {id:'pizza_cheese',name:'Cheese',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_sausage',name:'Sausage',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_pepperoni',name:'Pepperoni',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
   ]},
 ];
 const ALL_ITEMS = CATEGORIES.flatMap(c=>c.items);
@@ -442,7 +444,7 @@ async function showDashboard(lk){
 
   const rows = ALL_ITEMS.map(item=>{
     const countVal = activeSession ? (activeSession.counts?.[item.id] ?? '') : '';
-    const countTxt = countVal!=='' ? countVal+' '+item.unit.replace(/^\d+[\s-]*/,'').split(' ')[0] : '—';
+    const countTxt = countVal!=='' ? countVal+' '+(item.containerLabel==='each'?'each':item.containerLabel+(Number(countVal)!==1?'s':'')) : '—';
     const avgTxt = averages[item.id]!=null ? averages[item.id].toFixed(1) : '—';
     const parTxt = pars[item.id]!=null ? pars[item.id] : '—';
     const inProgTag = activeSession && activeSession.status==='in_progress' ? ' <span style="color:#C8102E;font-weight:700;">(in progress)</span>' : '';
