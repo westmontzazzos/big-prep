@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '12.2';
+const APP_VERSION = '12.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -730,8 +730,10 @@ async function showDeliveries(){
   const {data:latestD}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
   const mainOrder=(latestD && latestD.length)?latestD[0]:null;
   const openAddons=await getOpenAddons();
+  const {data:fulfilledAddons}=await sb.from('darien_addons').select('*').eq('status','fulfilled').order('created_at',{ascending:false}).limit(15);
 
   let mainRows='';
+  const deliveredLog=[];
   if(mainOrder){
     const delivered=mainOrder.delivered||{};
     ALL_ITEMS.forEach(item=>{
@@ -739,8 +741,9 @@ async function showDeliveries(){
       if(par==null) return;
       const onHand=Number(mainOrder.counts?.[item.id]||0);
       const need=Math.max(par-onHand,0);
-      if(need<=0) return;
       const deliveredQty=Number(delivered[item.id]||0);
+      if(deliveredQty>0) deliveredLog.push({item, qty:deliveredQty, source:'Weekly Order', date:mainOrder.completed_at});
+      if(need<=0) return;
       const remaining=Math.max(need-deliveredQty,0);
       if(remaining<=0) return;
       mainRows+=deliveryRow(item,remaining,deliveredQty,'main',mainOrder.id);
@@ -755,6 +758,7 @@ async function showDeliveries(){
       if(!item) return '';
       const reqQty=Number(items[itemId]||0);
       const deliveredQty=Number(delivered[itemId]||0);
+      if(deliveredQty>0) deliveredLog.push({item, qty:deliveredQty, source:'Add-On · '+(a.requested_by||'Unnamed'), date:a.created_at});
       const remaining=Math.max(reqQty-deliveredQty,0);
       if(remaining<=0) return '';
       return deliveryRow(item,remaining,deliveredQty,'addon',a.id);
@@ -769,6 +773,27 @@ async function showDeliveries(){
     </div>`;
   }).join('');
 
+  // fulfilled add-ons don't show in the "open" list above, but their
+  // deliveries still belong in the permanent log
+  (fulfilledAddons||[]).forEach(a=>{
+    const items=a.items||{}, delivered=a.delivered||{};
+    Object.keys(items).forEach(itemId=>{
+      const item=ITEM_BY_ID[itemId];
+      if(!item) return;
+      const qty=Number(delivered[itemId]||0);
+      if(qty>0) deliveredLog.push({item, qty, source:'Add-On · '+(a.requested_by||'Unnamed'), date:a.created_at});
+    });
+  });
+
+  deliveredLog.sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const deliveredRows = deliveredLog.map(d=>`<div class="ProdRow">
+    <div class="ProdRow-info">
+      <div class="ProdRow-name">${d.item.name}</div>
+      <div class="ProdRow-meta">${d.source} · ${new Date(d.date).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>
+    </div>
+    <div style="font-size:15px;font-weight:800;color:#1B6B3A;">✅ ${d.qty} ${d.item.containerLabel==='each'?'each':d.item.containerLabel+(d.qty!==1?'s':'')}</div>
+  </div>`).join('');
+
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">Deliveries</div>
@@ -778,6 +803,7 @@ async function showDeliveries(){
       <div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;">This Week's Order</div>
       <div class="LocBlock" style="margin-bottom:20px;">${mainRows || '<div style="padding:16px;text-align:center;color:#999;font-size:13px;">Nothing outstanding.</div>'}</div>
       ${openAddons.length ? '<div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Add-On Requests</div>'+addonBlocks : ''}
+      ${deliveredLog.length ? '<div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;margin-top:8px;">✅ Delivered</div><div class="LocBlock">'+deliveredRows+'</div>' : ''}
     </div>`;
 
   document.getElementById('bBackDash').onclick=()=>showDashboard('westmont');
