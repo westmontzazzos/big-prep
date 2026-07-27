@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '12.5';
+const APP_VERSION = '12.6';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -570,7 +570,7 @@ async function showDashboard(lk){
     <header class="H no-print">
       <div class="H-logo">${l.abbr}</div>
       <div class="H-right">
-        ${lk==='westmont' && !testMode ? `<button class="B ${openAddons.length?'B-red':'B-ghost'}" id="bDeliveries">🚚 Deliveries${openAddons.length?' ('+openAddons.length+')':''}</button>` : ''}
+        ${lk==='westmont' && !testMode ? `<button class="B ${openAddons.length?'B-red':'B-ghost'}" id="bDeliveries">🚚 Pickups${openAddons.length?' ('+openAddons.length+')':''}</button>` : ''}
         ${lk==='westmont' ? `<button class="B ${pendingDarien.length?'B-red':'B-ghost'}" id="bDarienOrders">📦 Darien${pendingDarien.length?' ('+pendingDarien.length+')':''}</button>` : ''}
         <button class="B B-ghost" id="bDashHome">🏠 Home</button>
       </div>
@@ -752,7 +752,7 @@ function deliveryRow(item, remaining, deliveredQty, source, recordId){
   return `<div class="ProdRow">
     <div class="ProdRow-info">
       <div class="ProdRow-name">${item.name}</div>
-      <div class="ProdRow-meta">Remaining: ${remaining} ${item.unit}${deliveredQty>0?' · Delivered so far: '+deliveredQty:''}</div>
+      <div class="ProdRow-meta">Remaining: ${remaining} ${item.unit}${deliveredQty>0?' · Picked up so far: '+deliveredQty:''}</div>
     </div>
     <div class="DualInput">
       <input class="SI" type="number" min="0" max="${remaining}" value="${remaining}" data-deliver-input="${source}|${recordId}|${item.id}">
@@ -806,7 +806,7 @@ async function showDeliveries(){
         <div class="LocHeader-name">Add-On · ${a.requested_by||'Unnamed'}</div>
         <div class="LocHeader-meta">Requested ${dateStr}</div>
       </div>
-      ${rows || '<div style="padding:12px 16px;font-size:12px;color:#1B6B3A;">✓ Fully delivered</div>'}
+      ${rows || '<div style="padding:12px 16px;font-size:12px;color:#1B6B3A;">✓ Fully picked up</div>'}
     </div>`;
   }).join('');
 
@@ -833,14 +833,14 @@ async function showDeliveries(){
 
   app.innerHTML = `
     <header class="H no-print">
-      <div class="H-logo">Deliveries</div>
+      <div class="H-logo">Pickups</div>
       <div class="H-right"><button class="B B-ghost" id="bBackDash">← Westmont</button></div>
     </header>
     <div class="Page" style="padding-top:12px;">
       <div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;">This Week's Order</div>
       <div class="LocBlock" style="margin-bottom:20px;">${mainRows || '<div style="padding:16px;text-align:center;color:#999;font-size:13px;">Nothing outstanding.</div>'}</div>
       ${openAddons.length ? '<div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Add-On Requests</div>'+addonBlocks : ''}
-      ${deliveredLog.length ? '<div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;margin-top:8px;">✅ Delivered</div><div class="LocBlock">'+deliveredRows+'</div>' : ''}
+      ${deliveredLog.length ? '<div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;margin-top:8px;">✅ Picked Up</div><div class="LocBlock">'+deliveredRows+'</div>' : ''}
     </div>`;
 
   document.getElementById('bBackDash').onclick=()=>showDashboard('westmont');
@@ -974,7 +974,7 @@ function doPrintAddon(addon){
             <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:40%;">Item</td>
             <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:25%;">Unit</td>
             <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:17%;">Needed</td>
-            <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:18%;">Delivered</td>
+            <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:18%;">Picked Up</td>
           </tr>
           ${rows}
         </tbody>
