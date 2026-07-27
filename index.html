@@ -15,7 +15,7 @@
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
     html,body{background:#EFEFEF;color:#111;font-family:'Inter',system-ui,sans-serif;font-size:14px;min-height:100vh;-webkit-font-smoothing:antialiased;}
 
-    .H{position:fixed;top:0;left:0;right:0;height:60px;background:#C8102E;border-bottom:4px solid #1B6B3A;display:flex;align-items:center;padding:0 16px;gap:10px;z-index:200;}
+    .H{position:relative;background:#C8102E;border-bottom:4px solid #1B6B3A;display:flex;align-items:center;flex-wrap:wrap;padding:10px 12px;gap:6px;row-gap:8px;z-index:200;}
     .H-logo{font-family:'Libre Baskerville',Georgia,serif;font-size:20px;font-weight:700;color:#fff;letter-spacing:0.04em;}
     .H-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
     .B{display:inline-flex;align-items:center;justify-content:center;height:36px;padding:0 14px;border-radius:6px;font-family:'Inter',system-ui,sans-serif;font-size:12px;font-weight:700;cursor:pointer;border:2px solid transparent;white-space:nowrap;-webkit-tap-highlight-color:transparent;}
@@ -39,7 +39,7 @@
     .LCard-status.active{color:#C8102E;}
 
     /* PAGE */
-    .Page{margin-top:64px;padding:12px 16px 100px;}
+    .Page{padding:12px 16px 100px;}
 
     /* ACCORDION */
     .LocBlock{border-radius:10px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,0.08),0 0 0 1px rgba(0,0,0,0.04);margin-bottom:10px;background:#fff;}
@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '10.6';
+const APP_VERSION = '10.7';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
