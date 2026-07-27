@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '9.1';
+const APP_VERSION = '9.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -459,7 +459,18 @@ async function showDashboard(lk){
     <div class="Page" style="padding-top:12px;">
       ${testMode?'<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🧪 TEST MODE — showing test data only</div>':''}
       ${lk==='westmont' && pendingDarien.length ? `<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🔔 Darien has ${pendingDarien.length} order${pendingDarien.length!==1?'s':''} awaiting review — tap 📦 Darien above</div>` : ''}
-      ${lk==='darien' && openAddons.length ? `<div style="background:#FFF6E0;color:#8A6300;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">📬 ${openAddons.length} open add-on${openAddons.length!==1?'s':''} not yet fully delivered</div>` : ''}
+      ${lk==='darien' && openAddons.length ? openAddons.map(a=>{
+        const itemLines=Object.keys(a.items||{}).map(id=>{
+          const it=ITEM_BY_ID[id]; if(!it) return '';
+          const req=Number(a.items[id]||0), del=Number((a.delivered||{})[id]||0), rem=Math.max(req-del,0);
+          return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>${it.name}</span><span style="font-weight:700;color:${rem>0?'#8A6300':'#1B6B3A'};">${rem>0?rem+' still owed':'✓ delivered'}</span></div>`;
+        }).join('');
+        const dateStr=new Date(a.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+        return `<div style="background:#FFF6E0;border-radius:8px;padding:10px 14px;margin-bottom:10px;">
+          <div style="font-size:12px;font-weight:700;color:#8A6300;margin-bottom:4px;">📬 Add-on from ${dateStr} — requested by ${a.requested_by||'Unnamed'}</div>
+          ${itemLines}
+        </div>`;
+      }).join('') : ''}
       <button class="B B-outline" id="bPrintCenter" style="width:100%;justify-content:center;margin-bottom:12px;">🖨 Print</button>
       <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;">
         ${weekTabs.map(w=>`<button class="B ${w===selectedWeek?'B-red':'B-outline'}" data-week="${w}" style="flex-shrink:0;">Week ${w}</button>`).join('')}
