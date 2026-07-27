@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '12.4';
+const APP_VERSION = '12.5';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -582,7 +582,7 @@ async function showDashboard(lk){
         const itemLines=Object.keys(a.items||{}).map(id=>{
           const it=ITEM_BY_ID[id]; if(!it) return '';
           const req=Number(a.items[id]||0), del=Number((a.delivered||{})[id]||0), rem=Math.max(req-del,0);
-          return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>${it.name}</span><span style="font-weight:700;color:${rem>0?'#8A6300':'#1B6B3A'};">${rem>0?rem+' still owed':'✓ delivered'}</span></div>`;
+          return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:2px 0;"><span>${it.name}</span><span style="font-weight:700;color:${rem>0?'#8A6300':'#1B6B3A'};">${rem>0?rem+' still owed':'✓ received'}</span></div>`;
         }).join('');
         const dateStr=new Date(a.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
         return `<div style="background:#FFF6E0;border-radius:8px;padding:10px 14px;margin-bottom:10px;">
