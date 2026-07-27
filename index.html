@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '10.0';
+const APP_VERSION = '10.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -979,24 +979,28 @@ function showCount(){
       }
 
       const owed = currentDarienOwed[item.id];
-      let darienCountLine = `<span class="ProdRow-true" data-true="${item.id}"></span>`;
-      if(owed>0){
-        const owedBase = owed*item.mult;
-        const trueTxt = val!=='' ? computeTrueCountText(item, val, owed) : `🚚 ${owedBase} ${item.baseUnit} owed to Darien`;
-        darienCountLine = `<div class="ProdRow-true" data-true="${item.id}" style="font-size:11px;font-weight:700;color:${val!==''?trueColor(item,val,owed):'#8A6300'};margin-top:3px;">${trueTxt}</div>`;
-      }
+      const hasOwed = owed>0;
+      const owedBase = hasOwed ? owed*item.mult : 0;
+      const trueBase = (hasOwed && val!=='') ? Number(val)*item.mult-owedBase : null;
+      const trueColorVal = trueBase!=null ? (trueBase<0?'#C8102E':'#1B6B3A') : '#999';
 
-      return `<div class="ProdRow">
+      return `<div class="ProdRow" style="${hasOwed?'background:#FFFBF0;':''}">
         <div class="ProdRow-info">
           <div class="ProdRow-name">${item.name}</div>
           <div class="ProdRow-meta">${item.unit}${totalTxt?' · <span class="ProdRow-total" data-total="'+item.id+'">'+totalTxt+'</span>':'<span class="ProdRow-total" data-total="'+item.id+'"></span>'}</div>
-          ${darienCountLine}
         </div>
         <div class="DualInput">
           <div class="IG"><label>${l.fieldLabel}</label>
             <input class="SI${val!==''?' filled':''}" type="number" min="0" inputmode="numeric"
               data-item="${item.id}" data-cat="${cat.name}" value="${val}" placeholder="0">
           </div>
+          ${hasOwed ? `
+          <div class="IG"><label style="color:#8A6300;">− DARIEN</label>
+            <div class="SI-readonly" style="border-color:#8A6300;background:#FFF3D6;color:#8A6300;font-size:18px;" data-owed="${item.id}">${owedBase}</div>
+          </div>
+          <div class="IG"><label style="color:${trueColorVal};">TRUE COUNT</label>
+            <div class="SI-readonly" style="border-color:${trueColorVal};background:#fff;color:${trueColorVal};font-size:20px;font-weight:800;width:64px;" data-true="${item.id}">${trueBase!=null?trueBase:'—'}</div>
+          </div>` : ''}
         </div>
       </div>`;
     }).join('');
@@ -1131,29 +1135,26 @@ function refreshNeed(itemId){
   el.textContent = Math.max(par-Number(val),0);
 }
 
-function computeTrueCountText(item, val, owed){
-  const trueBase = Number(val)*item.mult - owed*item.mult;
-  return `🚚 ${owed*item.mult} ${item.baseUnit} to Darien · True count: ${trueBase} ${item.baseUnit}`;
-}
-function trueColor(item, val, owed){
-  const trueBase = Number(val)*item.mult - owed*item.mult;
-  return trueBase<0 ? '#C8102E' : '#1B6B3A';
-}
 function refreshTrue(itemId){
   if(activeLoc!=='westmont') return;
   const el=document.querySelector(`[data-true="${itemId}"]`);
   if(!el) return;
   const owed=currentDarienOwed[itemId];
-  if(!(owed>0)){ el.textContent=''; return; }
+  if(!(owed>0)) return; // box doesn't exist for this item, nothing to update
   const item=ITEM_BY_ID[itemId];
   const val=session.counts[itemId];
+  const owedBase=owed*item.mult;
   if(val==='' || val==null){
-    el.textContent=`🚚 ${owed*item.mult} ${item.baseUnit} owed to Darien`;
-    el.style.color='#8A6300';
-  } else {
-    el.textContent=computeTrueCountText(item,val,owed);
-    el.style.color=trueColor(item,val,owed);
+    el.textContent='—';
+    el.style.color='#999';
+    el.style.borderColor='#999';
+    return;
   }
+  const trueBase=Number(val)*item.mult-owedBase;
+  const color = trueBase<0?'#C8102E':'#1B6B3A';
+  el.textContent=trueBase;
+  el.style.color=color;
+  el.style.borderColor=color;
 }
 
 function queueSave(){
