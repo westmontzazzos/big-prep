@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '9.0';
+const APP_VERSION = '9.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -222,6 +222,25 @@ function mondayOf(d){
   mon.setHours(0,0,0,0);
   mon.setDate(mon.getDate()-diff);
   return mon;
+}
+// Darien-specific: a Sunday order is for the week that starts the NEXT day
+// (weeks run Mon–Sun, so Sunday is the last day of the week it falls in —
+// but an order placed on Sunday is for the upcoming week, not that one).
+// Anything picked Mon–Sat just falls in its own normal Mon–Sun week.
+function targetMondayForDarienOrder(picked){
+  if(picked.getDay()===0){
+    const nextMon=new Date(picked);
+    nextMon.setHours(0,0,0,0);
+    nextMon.setDate(nextMon.getDate()+1);
+    return nextMon;
+  }
+  return mondayOf(picked);
+}
+function mostRecentSunday(d){
+  const sun=new Date(d);
+  sun.setHours(0,0,0,0);
+  sun.setDate(sun.getDate()-sun.getDay());
+  return sun;
 }
 
 function catFilledCount(cat){ return cat.items.filter(i=>(session.counts[i.id]??'')!=='' ).length; }
@@ -386,8 +405,10 @@ async function showDashboard(lk){
     averages[item.id]=vals.reduce((a,b)=>a+b,0)/vals.length;
   });
 
+  const maxDataWeek = sessions.length ? Math.max(...sessions.map(s=>weekNumberForDate(new Date(s.completed_at||s.started_at)))) : curWeek;
+  const lastTab = Math.max(curWeek+1, maxDataWeek); // always show at least one week ahead
   const weekTabs=[];
-  for(let w=1; w<=curWeek; w++) weekTabs.push(w);
+  for(let w=1; w<=lastTab; w++) weekTabs.push(w);
 
   const activeSession=weekMap[selectedWeek];
 
@@ -819,12 +840,16 @@ function showSetupModal(lk){
   app.innerHTML = `<div class="Login"><div class="Login-logo" style="font-size:32px;">${l.name}</div></div>`;
   const el=document.createElement('div');
   el.className='Overlay'; el.id='modal';
-  const todayMonday=mondayOf(new Date());
-  const isoDefault=todayMonday.toISOString().slice(0,10);
+  const isDarien = lk==='darien';
+  const defaultDate = isDarien ? mostRecentSunday(new Date()) : mondayOf(new Date());
+  const isoDefault=defaultDate.toISOString().slice(0,10);
+  const fieldLabel = isDarien
+    ? "Order received on (usually a Sunday — that Sunday's order is for the following week)"
+    : "Week (pick any day — snaps to that week's Monday)";
   el.innerHTML = `<div class="Modal">
     <div class="Modal-title">${testMode?'🧪 ':''}Start counting — ${l.name}${testMode?' (test)':''}</div>
     <div class="Modal-field">
-      <label>Week (pick any day — snaps to that week's Monday)</label>
+      <label>${fieldLabel}</label>
       <input type="date" id="setupWeekDate" value="${isoDefault}">
       <div id="setupWeekPreview" style="font-size:12px;color:#1B6B3A;font-weight:700;margin-top:6px;"></div>
     </div>
@@ -841,9 +866,10 @@ function showSetupModal(lk){
     const preview=document.getElementById('setupWeekPreview');
     if(!raw || !preview) return;
     const picked=new Date(raw+'T00:00:00');
-    const mon=mondayOf(picked);
+    const mon=isDarien ? targetMondayForDarienOrder(picked) : mondayOf(picked);
     const wk=weekNumberForDate(mon);
-    preview.textContent = 'Week '+wk+' · '+weekRangeLabel(wk);
+    const sundayNote = isDarien && picked.getDay()===0 ? ' (Sunday order → following week)' : '';
+    preview.textContent = 'Week '+wk+' · '+weekRangeLabel(wk)+sundayNote;
   }
   document.getElementById('setupWeekDate').oninput=updateWeekPreview;
   updateWeekPreview();
@@ -852,7 +878,7 @@ function showSetupModal(lk){
   document.getElementById('setupStart').onclick=async ()=>{
     const raw=document.getElementById('setupWeekDate').value;
     const picked = raw ? new Date(raw+'T00:00:00') : new Date();
-    const monday = mondayOf(picked);
+    const monday = isDarien ? targetMondayForDarienOrder(picked) : mondayOf(picked);
     const week = 'Week of '+monday.toLocaleDateString('en-US',{month:'short',day:'numeric'});
     const counter=document.getElementById('setupName').value.trim()||'Unnamed';
     closeModal();
