@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '13.0';
+const APP_VERSION = '13.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -825,10 +825,10 @@ async function showDarienTracker(){
       rows+=`<div class="ProdRow" style="${received?'background:#E8F5ED;':''}">
         <div class="ProdRow-info">
           <div class="ProdRow-name">${item.name}</div>
-          <div class="ProdRow-meta">${item.unit}${addonQty>0?' · includes +'+addonQty+' add-on':''}</div>
+          <div class="ProdRow-meta">${item.unit}</div>
         </div>
         <div style="display:flex;gap:14px;align-items:center;text-align:center;flex-shrink:0;">
-          <div style="width:54px;"><div style="font-size:9px;color:#999;text-transform:uppercase;font-weight:700;">Ordered</div><div style="font-size:13px;font-weight:700;color:#111;">${ordered}</div></div>
+          <div style="width:54px;"><div style="font-size:9px;color:#999;text-transform:uppercase;font-weight:700;">Ordered</div><div style="font-size:13px;font-weight:700;color:#111;">${ordered}</div>${addonQty>0?`<div style="font-size:9px;font-weight:700;color:#1B6B3A;">+${addonQty}</div>`:''}</div>
           <div style="width:64px;"><div style="font-size:9px;color:#1B6B3A;text-transform:uppercase;font-weight:700;">Picked Up</div><div style="font-size:13px;font-weight:700;color:#1B6B3A;">${pickedUp}${received?' ✅':''}</div></div>
         </div>
       </div>`;
