@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '11.0';
+const APP_VERSION = '11.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -486,9 +486,9 @@ async function showDashboard(lk){
     <header class="H no-print">
       <div class="H-logo">${l.abbr}</div>
       <div class="H-right">
-        ${lk==='westmont' && !testMode ? `<button class="B ${openAddons.length?'B-red':'B-ghost'}" id="bDeliveries">🚚 Deliveries${openAddons.length?' ('+openAddons.length+')':''}</button>` : ''}
-        ${lk==='westmont' ? `<button class="B ${pendingDarien.length?'B-red':'B-ghost'}" id="bDarienOrders">📦 Darien${pendingDarien.length?' ('+pendingDarien.length+')':''}</button>` : ''}
-        <button class="B B-ghost" id="bDashHome">🏠 Home</button>
+        ${lk==='westmont' && !testMode ? `<button class="B ${openAddons.length?'B-red':'B-ghost'}" id="bDeliveries" style="width:118px;">🚚 Deliveries${openAddons.length?' ('+openAddons.length+')':''}</button>` : ''}
+        ${lk==='westmont' ? `<button class="B ${pendingDarien.length?'B-red':'B-ghost'}" id="bDarienOrders" style="width:118px;">📦 Darien${pendingDarien.length?' ('+pendingDarien.length+')':''}</button>` : ''}
+        <button class="B B-ghost" id="bDashHome" style="width:118px;">🏠 Home</button>
       </div>
     </header>
     <div class="Page" style="padding-top:12px;">
