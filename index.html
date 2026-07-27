@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '10.1';
+const APP_VERSION = '10.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -148,6 +148,9 @@ const CATEGORIES = [
     {id:'pizza_cheese',name:'Cheese',unit:'each', mult:1, baseUnit:'ct'},
     {id:'pizza_sausage',name:'Sausage',unit:'each', mult:1, baseUnit:'ct'},
     {id:'pizza_pepperoni',name:'Pepperoni',unit:'each', mult:1, baseUnit:'ct'},
+  ]},
+  {name:'Ribs', items:[
+    {id:'ribs',name:'Ribs',unit:'half slab (~0.875 lb)', mult:0.875, baseUnit:'lb'},
   ]},
 ];
 const ALL_ITEMS = CATEGORIES.flatMap(c=>c.items);
