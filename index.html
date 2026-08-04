@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '14.0';
+const APP_VERSION = '14.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -610,7 +610,10 @@ async function showDashboard(lk){
         }).join('');
         const dateStr=new Date(a.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
         return `<div style="background:#FFF6E0;border-radius:8px;padding:10px 14px;margin-bottom:10px;">
-          <div style="font-size:12px;font-weight:700;color:#8A6300;margin-bottom:4px;">📬 Add-on from ${dateStr} — requested by ${a.requested_by||'Unnamed'}</div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <div style="font-size:12px;font-weight:700;color:#8A6300;margin-bottom:4px;">📬 Add-on from ${dateStr} — requested by ${a.requested_by||'Unnamed'}</div>
+            <button class="B B-outline" data-edit-addon="${a.id}" style="height:24px;padding:0 8px;font-size:10px;flex-shrink:0;">✏️ Edit</button>
+          </div>
           ${itemLines}
         </div>`;
       }).join('') : ''}
@@ -639,6 +642,10 @@ async function showDashboard(lk){
     }
   };
   if(document.getElementById('bAddOn')) document.getElementById('bAddOn').onclick=()=>showAddOnForm();
+  if(lk==='darien') openAddons.forEach(a=>{
+    const editBtn=document.querySelector(`[data-edit-addon="${a.id}"]`);
+    if(editBtn) editBtn.onclick=()=>showAddOnForm(a, ()=>showDashboard('darien'));
+  });
   if(document.getElementById('bDeliveries')) document.getElementById('bDeliveries').onclick=()=>showDeliveries();
   if(document.getElementById('bDarienTracker')) document.getElementById('bDarienTracker').onclick=()=>showDarienTracker();
   document.querySelectorAll('[data-week]').forEach(btn=>{
@@ -802,8 +809,10 @@ async function showOrderDetail(order){
 // ─── ADD-ON ORDERS (Darien side) ─────────────────────────────────────────────
 // A lightweight, direct-quantity request that can be submitted any time
 // during the week, separate from the standard weekly On Hand → Need order.
-function showAddOnForm(){
-  const weekLbl = 'Week of '+targetMondayForDarienOrder(new Date()).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+function showAddOnForm(existing, onDone){
+  onDone = onDone || (()=>showDashboard('darien'));
+  const weekLbl = existing ? existing.week_label : 'Week of '+targetMondayForDarienOrder(new Date()).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const existingItems = existing ? (existing.items||{}) : {};
   const rows = CATEGORIES.map(cat=>`
     <div style="margin-bottom:14px;">
       <div style="font-size:11px;font-weight:700;color:#999;text-transform:uppercase;margin-bottom:6px;">${cat.name}</div>
@@ -814,20 +823,20 @@ function showAddOnForm(){
             <div class="ProdRow-name">${item.name}</div>
             <div class="ProdRow-meta">${item.unit}</div>
           </div>
-          <input class="SI" type="number" min="0" inputmode="numeric" data-addon-item="${item.id}" placeholder="0">
+          <input class="SI" type="number" min="0" inputmode="numeric" data-addon-item="${item.id}" placeholder="0" value="${existingItems[item.id]||''}">
         </div>`).join('')}
       </div>
     </div>`).join('');
 
   app.innerHTML = `
     <header class="H no-print">
-      <div class="H-logo">Add-On Order</div>
+      <div class="H-logo">${existing?'Edit Add-On':'Add-On Order'}</div>
       <div class="H-right"><button class="B B-ghost" id="bAddOnCancel">← Cancel</button></div>
     </header>
     <div class="Page" style="padding-top:12px;">
       <div class="Modal-field" style="margin-bottom:16px;">
         <label>Requested by</label>
-        <input id="addonName" placeholder="Your name">
+        <input id="addonName" placeholder="Your name" value="${existing?(existing.requested_by||'').replace(/"/g,'&quot;'):''}">
       </div>
       <div style="font-size:12px;color:#777;margin-bottom:14px;">Only enter quantities for what's actually needed extra this week — leave everything else blank.</div>
       ${rows}
@@ -835,10 +844,10 @@ function showAddOnForm(){
     <div class="Footer no-print">
       <button class="Fbtn" id="bAddOnCancel2">Cancel</button>
       <div class="Footer-prog">${weekLbl}</div>
-      <button class="Fbtn Fbtn-next" id="bAddOnSubmit">Submit Add-On</button>
+      <button class="Fbtn Fbtn-next" id="bAddOnSubmit">${existing?'Save Changes':'Submit Add-On'}</button>
     </div>`;
 
-  document.getElementById('bAddOnCancel').onclick=document.getElementById('bAddOnCancel2').onclick=()=>showDashboard('darien');
+  document.getElementById('bAddOnCancel').onclick=document.getElementById('bAddOnCancel2').onclick=onDone;
   document.getElementById('bAddOnSubmit').onclick=async ()=>{
     const name=document.getElementById('addonName').value.trim()||'Unnamed';
     const items={};
@@ -848,8 +857,14 @@ function showAddOnForm(){
     });
     if(Object.keys(items).length===0){ alert('Enter at least one item quantity before submitting.'); return; }
     showLoading();
-    await sb.from('darien_addons').insert({week_label:weekLbl, requested_by:name, items, delivered:{}, status:'open'});
-    showDashboard('darien');
+    if(existing){
+      const delivered=existing.delivered||{};
+      const allDone=Object.keys(items).every(k=>Number(delivered[k]||0)>=Number(items[k]||0));
+      await sb.from('darien_addons').update({items, requested_by:name, status:allDone?'fulfilled':'open'}).eq('id',existing.id);
+    } else {
+      await sb.from('darien_addons').insert({week_label:weekLbl, requested_by:name, items, delivered:{}, status:'open'});
+    }
+    onDone();
   };
 }
 
@@ -979,9 +994,12 @@ async function showDeliveries(){
     }).join('');
     const dateStr=new Date(a.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
     return `<div class="LocBlock" style="margin-bottom:16px;">
-      <div style="padding:12px 16px;border-bottom:1px solid #F0F0F0;">
-        <div class="LocHeader-name">Add-On · ${a.requested_by||'Unnamed'}</div>
-        <div class="LocHeader-meta">Requested ${dateStr}</div>
+      <div style="padding:12px 16px;border-bottom:1px solid #F0F0F0;display:flex;justify-content:space-between;align-items:flex-start;">
+        <div>
+          <div class="LocHeader-name">Add-On · ${a.requested_by||'Unnamed'}</div>
+          <div class="LocHeader-meta">Requested ${dateStr}</div>
+        </div>
+        <button class="B B-outline" data-edit-addon="${a.id}" style="height:26px;padding:0 10px;font-size:10px;flex-shrink:0;">✏️ Edit</button>
       </div>
       ${rows || '<div style="padding:12px 16px;font-size:12px;color:#1B6B3A;">✓ Fully picked up</div>'}
     </div>`;
@@ -1049,6 +1067,10 @@ async function showDeliveries(){
 
   document.getElementById('bBackDash').onclick=()=>showDashboard('westmont');
   document.getElementById('bTrackerPrint').onclick=()=>printTrackerSheet('WESTMONT TRACKER', mainOrder?mainOrder.week_label:'', printItems);
+  openAddons.forEach(a=>{
+    const editBtn=document.querySelector(`[data-edit-addon="${a.id}"]`);
+    if(editBtn) editBtn.onclick=()=>showAddOnForm(a, ()=>showDeliveries());
+  });
   document.querySelectorAll('[data-undo]').forEach(btn=>{
     btn.onclick=async ()=>{
       const [source,recordId,itemId]=btn.dataset.undo.split('|');
