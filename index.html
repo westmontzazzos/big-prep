@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '15.0';
+const APP_VERSION = '15.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -633,7 +633,7 @@ async function showDashboard(lk){
     </div>`;
 
   document.getElementById('bDashHome').onclick=document.getElementById('bDashHome2').onclick=()=>showHome();
-  document.getElementById('bDashNotes').onclick=()=>{ activeLoc=lk; showNotes(()=>showDashboard(lk)); };
+  document.getElementById('bDashNotes').onclick=()=>{ activeLoc=lk; showNotes(()=>showDashboard(lk), activeSession?activeSession.id:null, activeSession?activeSession.week_label:null); };
   document.getElementById('bDashAction').onclick=()=>{
     if(activeSession && activeSession.status==='completed'){
       showModal('Edit '+activeSession.week_label+'?','This reopens the completed numbers so you can fix them. Once you tap Complete again, it overrides this week\'s numbers'+(lk==='darien'?' and Westmont has to re-acknowledge it, just like a new submission':'')+'.',[
@@ -1116,7 +1116,7 @@ async function showDeliveries(){
 }
 
 // ─── NOTES (ported from the inventory app's Flag an Issue feature) ──────────
-function showNotes(returnFn){
+function showNotes(returnFn, orderId, weekLabel){
   const locName = LOCATIONS[activeLoc]?.name || '';
   app.innerHTML = `
     <header class="H no-print">
@@ -1125,7 +1125,7 @@ function showNotes(returnFn){
     </header>
     <div class="Page" style="padding-top:12px;">
       <div style="font-family:'Libre Baskerville',Georgia,serif;font-size:20px;font-weight:700;margin-bottom:4px;">Notes</div>
-      <div style="font-size:13px;color:#777;margin-bottom:14px;">Context: <strong>${locName}</strong></div>
+      <div style="font-size:13px;color:#777;margin-bottom:14px;">Context: <strong>${locName}${weekLabel?' · '+weekLabel:''}</strong>${orderId?'<div style="font-size:11px;color:#1B6B3A;margin-top:2px;">📎 Will print with this week\'s ticket</div>':'<div style="font-size:11px;color:#999;margin-top:2px;">Not tied to a specific week — start a count first to attach notes to it</div>'}</div>
 
       <div class="LocBlock" style="padding:16px;margin-bottom:16px;">
         <textarea id="noteText" rows="4" placeholder="Tap the mic on your keyboard to dictate, or type here..."
@@ -1142,26 +1142,29 @@ function showNotes(returnFn){
     const textEl=document.getElementById('noteText');
     const noteText=textEl.value.trim();
     if(!noteText) return;
-    await saveNote(noteText, activeLoc);
+    await saveNote(noteText, activeLoc, orderId);
     textEl.value='';
   };
 
-  loadNotes();
+  loadNotes(orderId);
 }
 
-async function saveNote(noteText, location){
+async function saveNote(noteText, location, orderId){
+  if(testMode) return;
   try{
-    await sb.from('prep_notes').insert({location, note:noteText, created_by:session?.counter_name||''});
-    loadNotes();
+    await sb.from('prep_notes').insert({location, order_id:orderId||null, note:noteText, created_by:session?.counter_name||''});
+    loadNotes(orderId);
   }catch(e){
     showModal('Error','Could not save the note — check your connection and try again.',[{l:'OK',c:'B-red',fn:closeModal}]);
   }
 }
 
-async function loadNotes(){
+async function loadNotes(orderId){
   const listEl=document.getElementById('noteList');
   if(!listEl) return;
-  const {data:notes,error}=await sb.from('prep_notes').select('*').eq('location',activeLoc).order('created_at',{ascending:false}).limit(100);
+  let query=sb.from('prep_notes').select('*').eq('location',activeLoc);
+  query = orderId ? query.eq('order_id',orderId) : query.is('order_id',null);
+  const {data:notes,error}=await query.order('created_at',{ascending:false}).limit(100);
   if(error){ listEl.innerHTML=`<div style="padding:16px;color:#C8102E;font-size:13px;">Could not load notes — check your connection.</div>`; return; }
   if(!notes || !notes.length){ listEl.innerHTML=`<div style="padding:16px;color:#777;font-size:13px;">No notes yet.</div>`; return; }
   listEl.innerHTML=notes.map(n=>`
@@ -1511,7 +1514,7 @@ function showCount(){
 
   document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>showDashboard(activeLoc);
   document.getElementById('bAvg').onclick=()=>showAverages();
-  document.getElementById('bNotes').onclick=()=>showNotes(showCount);
+  document.getElementById('bNotes').onclick=()=>showNotes(showCount, testMode?null:session.id, session.week_label);
   document.getElementById('bClear').onclick=()=>{
     showModal('Clear this count?','This erases every entry for '+session.week_label+' at '+l.name+'. The session stays open so you can start over.',[
       {l:'Cancel',c:'B-outline',fn:closeModal},
@@ -1654,9 +1657,19 @@ async function finishAndPrint(cert){
   showDashboard(lk);
 }
 
-function doPrint(finalSession, loc, lk){
+async function doPrint(finalSession, loc, lk){
   const date=new Date(finalSession.completed_at).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
   const isDarien = lk==='darien';
+  let notesHtml='';
+  if(finalSession.id && !testMode){
+    const {data:notes}=await sb.from('prep_notes').select('*').eq('order_id',finalSession.id).order('created_at',{ascending:true});
+    if(notes && notes.length){
+      notesHtml = `<div style="margin-top:10px;border-top:2px dashed #1A1A2E;padding-top:6px;">
+        <div style="font-size:9px;font-weight:700;text-transform:uppercase;color:#1A1A2E;margin-bottom:4px;">📝 Notes</div>
+        ${notes.map(n=>`<div style="font-size:9px;color:#333;margin-bottom:3px;">• ${n.note}${n.created_by?' <span style="color:#777;">— '+n.created_by+'</span>':''}</div>`).join('')}
+      </div>`;
+    }
+  }
   let tableRows='';
   CATEGORIES.forEach(cat=>{
     tableRows+=`<tr><td colspan="4" style="background:#1A1A2E;color:#fff;font-weight:700;padding:4px 8px;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;border-top:2px solid #000;border-bottom:2px solid #000;">${cat.name}</td></tr>
@@ -1708,6 +1721,7 @@ function doPrint(finalSession, loc, lk){
         </div>
       </div>
       <table style="width:100%;border-collapse:collapse;font-size:9px;table-layout:fixed;"><tbody>${tableRows}</tbody></table>
+      ${notesHtml}
     </div>`;
   window.print();
 }
