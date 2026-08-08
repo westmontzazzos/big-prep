@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '14.1';
+const APP_VERSION = '15.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -146,6 +146,7 @@ const CATEGORIES = [
     {id:'grilled_chicken',name:'Grilled Chicken',unit:'10 lb bag', mult:10, baseUnit:'lb', containerLabel:'bag'},
     {id:'lemon_chicken',name:'Lemon Chicken',unit:'group of 10', mult:10, baseUnit:'ct', containerLabel:'group'},
     {id:'ribs',name:'Ribs',unit:'half slab', mult:1, baseUnit:'ct', containerLabel:'half slab'},
+    {id:'chicken_wings',name:'Chicken Wings',unit:'bucket (16 bags of 12)', mult:192, baseUnit:'ct', containerLabel:'bucket'},
   ]},
   {name:'Frozen Pizza', items:[
     {id:'pizza_cheese',name:'Cheese',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
@@ -596,6 +597,7 @@ async function showDashboard(lk){
         ${lk==='westmont' && !testMode ? `<button class="B ${openAddons.length?'B-red':'B-ghost'}" id="bDeliveries">🚚 Tracker${openAddons.length?' ('+openAddons.length+')':''}</button>` : ''}
         ${lk==='westmont' ? `<button class="B ${pendingDarien.length?'B-red':'B-ghost'}" id="bDarienOrders">📦 Darien${pendingDarien.length?' ('+pendingDarien.length+')':''}</button>` : ''}
         ${lk==='darien' && !testMode ? `<button class="B B-ghost" id="bDarienTracker">📋 Tracker</button>` : ''}
+        <button class="B B-ghost" id="bDashNotes">📝 Notes</button>
         <button class="B B-ghost" id="bDashHome">🏠 Home</button>
       </div>
     </header>
@@ -631,6 +633,7 @@ async function showDashboard(lk){
     </div>`;
 
   document.getElementById('bDashHome').onclick=document.getElementById('bDashHome2').onclick=()=>showHome();
+  document.getElementById('bDashNotes').onclick=()=>{ activeLoc=lk; showNotes(()=>showDashboard(lk)); };
   document.getElementById('bDashAction').onclick=()=>{
     if(activeSession && activeSession.status==='completed'){
       showModal('Edit '+activeSession.week_label+'?','This reopens the completed numbers so you can fix them. Once you tap Complete again, it overrides this week\'s numbers'+(lk==='darien'?' and Westmont has to re-acknowledge it, just like a new submission':'')+'.',[
@@ -823,7 +826,7 @@ function showAddOnForm(existing, onDone){
             <div class="ProdRow-name">${item.name}</div>
             <div class="ProdRow-meta">${item.unit}</div>
           </div>
-          <input class="SI" type="number" min="0" inputmode="numeric" data-addon-item="${item.id}" placeholder="0" value="${existingItems[item.id]||''}">
+          <input class="SI" type="number" min="0" step="any" inputmode="decimal" data-addon-item="${item.id}" placeholder="0" value="${existingItems[item.id]||''}">
         </div>`).join('')}
       </div>
     </div>`).join('');
@@ -879,7 +882,7 @@ function deliveryRow(item, remaining, deliveredQty, source, recordId){
       <div class="ProdRow-meta">Remaining: ${remaining} ${item.unit}${deliveredQty>0?' · Picked up so far: '+deliveredQty:''}</div>
     </div>
     <div class="DualInput">
-      <input class="SI" type="number" min="0" max="${remaining}" value="${remaining}" data-deliver-input="${source}|${recordId}|${item.id}">
+      <input class="SI" type="number" min="0" step="any" max="${remaining}" value="${remaining}" data-deliver-input="${source}|${recordId}|${item.id}">
       <button class="B B-red" data-deliver="${source}|${recordId}|${item.id}" style="height:40px;">✅</button>
     </div>
   </div>`;
@@ -1108,6 +1111,84 @@ async function showDeliveries(){
         await sb.from('darien_addons').update({delivered, status:allDone?'fulfilled':'open'}).eq('id',recordId);
       }
       showDeliveries();
+    };
+  });
+}
+
+// ─── NOTES (ported from the inventory app's Flag an Issue feature) ──────────
+function showNotes(returnFn){
+  const locName = LOCATIONS[activeLoc]?.name || '';
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Notes</div>
+      <div class="H-right"><button class="B B-ghost" id="bNotesClose">✕ Close</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="font-family:'Libre Baskerville',Georgia,serif;font-size:20px;font-weight:700;margin-bottom:4px;">Notes</div>
+      <div style="font-size:13px;color:#777;margin-bottom:14px;">Context: <strong>${locName}</strong></div>
+
+      <div class="LocBlock" style="padding:16px;margin-bottom:16px;">
+        <textarea id="noteText" rows="4" placeholder="Tap the mic on your keyboard to dictate, or type here..."
+          style="width:100%;border:2px solid #E2E2E2;border-radius:8px;padding:12px;font-size:15px;font-family:'Inter',sans-serif;"></textarea>
+        <button class="Fbtn Fbtn-next" style="width:100%;margin-top:10px;height:44px;" id="bNoteSave">💾 Save Note</button>
+      </div>
+
+      <div style="font-size:11px;font-weight:700;color:#777;text-transform:uppercase;margin-bottom:8px;">All Notes</div>
+      <div id="noteList"><div style="padding:16px;color:#777;font-size:13px;">Loading...</div></div>
+    </div>`;
+
+  document.getElementById('bNotesClose').onclick=returnFn;
+  document.getElementById('bNoteSave').onclick=async ()=>{
+    const textEl=document.getElementById('noteText');
+    const noteText=textEl.value.trim();
+    if(!noteText) return;
+    await saveNote(noteText, activeLoc);
+    textEl.value='';
+  };
+
+  loadNotes();
+}
+
+async function saveNote(noteText, location){
+  try{
+    await sb.from('prep_notes').insert({location, note:noteText, created_by:session?.counter_name||''});
+    loadNotes();
+  }catch(e){
+    showModal('Error','Could not save the note — check your connection and try again.',[{l:'OK',c:'B-red',fn:closeModal}]);
+  }
+}
+
+async function loadNotes(){
+  const listEl=document.getElementById('noteList');
+  if(!listEl) return;
+  const {data:notes,error}=await sb.from('prep_notes').select('*').eq('location',activeLoc).order('created_at',{ascending:false}).limit(100);
+  if(error){ listEl.innerHTML=`<div style="padding:16px;color:#C8102E;font-size:13px;">Could not load notes — check your connection.</div>`; return; }
+  if(!notes || !notes.length){ listEl.innerHTML=`<div style="padding:16px;color:#777;font-size:13px;">No notes yet.</div>`; return; }
+  listEl.innerHTML=notes.map(n=>`
+    <div class="LocBlock" style="margin-bottom:10px;padding:14px 16px;">
+      <div style="font-size:10px;font-weight:700;color:#777;text-transform:uppercase;margin-bottom:6px;">
+        ${new Date(n.created_at).toLocaleDateString()}${n.created_by?' · '+n.created_by:''}
+      </div>
+      <textarea data-note-id="${n.id}" rows="2"
+        style="width:100%;border:2px solid #E2E2E2;border-radius:8px;padding:8px;font-size:14px;font-family:'Inter',sans-serif;margin-bottom:8px;">${n.note}</textarea>
+      <div style="display:flex;gap:8px;">
+        <button class="B B-outline" style="flex:1;font-size:12px;" data-save-note="${n.id}">Save Edit</button>
+        <button class="B B-outline" style="flex:1;font-size:12px;color:#C8102E;border-color:#C8102E;" data-delete-note="${n.id}">Delete</button>
+      </div>
+    </div>`).join('');
+
+  listEl.querySelectorAll('[data-save-note]').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.dataset.saveNote;
+      const newText=listEl.querySelector(`[data-note-id="${id}"]`).value.trim();
+      await sb.from('prep_notes').update({note:newText}).eq('id',id);
+    };
+  });
+  listEl.querySelectorAll('[data-delete-note]').forEach(btn=>{
+    btn.onclick=async ()=>{
+      const id=btn.dataset.deleteNote;
+      await sb.from('prep_notes').delete().eq('id',id);
+      loadNotes();
     };
   });
 }
@@ -1357,7 +1438,7 @@ function showCount(){
           </div>
           <div class="DualInput">
             <div class="IG"><label>On Hand</label>
-              <input class="SI${val!==''?' filled':''}" type="number" min="0" inputmode="numeric"
+              <input class="SI${val!==''?' filled':''}" type="number" min="0" step="any" inputmode="decimal"
                 data-item="${item.id}" data-cat="${cat.name}" value="${val}" placeholder="0">
             </div>
             <div class="IG"><label>Need</label>
@@ -1379,7 +1460,7 @@ function showCount(){
         </div>
         <div class="DualInput">
           <div class="IG"><label>${l.fieldLabel}</label>
-            <input class="SI${val!==''?' filled':''}" type="number" min="0" inputmode="numeric"
+            <input class="SI${val!==''?' filled':''}" type="number" min="0" step="any" inputmode="decimal"
               data-item="${item.id}" data-cat="${cat.name}" value="${val}" placeholder="0">
           </div>
           ${hasOwed ? `
@@ -1410,6 +1491,7 @@ function showCount(){
     <header class="H no-print">
       <div class="H-logo">${l.abbr}</div>
       <div class="H-right">
+        <button class="B B-ghost" id="bNotes">📝 Notes</button>
         <button class="B B-ghost" id="bAvg">📊 Averages</button>
         <button class="B B-ghost" id="bHome">← Dashboard</button>
       </div>
@@ -1429,6 +1511,7 @@ function showCount(){
 
   document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>showDashboard(activeLoc);
   document.getElementById('bAvg').onclick=()=>showAverages();
+  document.getElementById('bNotes').onclick=()=>showNotes(showCount);
   document.getElementById('bClear').onclick=()=>{
     showModal('Clear this count?','This erases every entry for '+session.week_label+' at '+l.name+'. The session stays open so you can start over.',[
       {l:'Cancel',c:'B-outline',fn:closeModal},
