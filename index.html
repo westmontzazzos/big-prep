@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '15.1';
+const APP_VERSION = '16.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -464,6 +464,16 @@ async function showDashboard(lk){
   const pendingDarien = lk==='westmont' ? await getPendingDarienOrders() : [];
   const openAddons = await getOpenAddons();
 
+  let darienFreshness=null;
+  if(lk==='westmont' && !testMode){
+    const {data:latestD}=await sb.from(TABLE).select('onhand_updated_at,completed_at,started_at').eq('location','darien').order('started_at',{ascending:false}).limit(1);
+    if(latestD && latestD.length){
+      const r=latestD[0];
+      const ts=r.onhand_updated_at||r.completed_at||r.started_at;
+      if(ts) darienFreshness=new Date(ts);
+    }
+  }
+
   // What Westmont currently owes Darien — shared logic, also used on the
   // actual Count screen so the subtraction shows up while you're typing,
   // not just afterward on the dashboard.
@@ -603,6 +613,7 @@ async function showDashboard(lk){
     </header>
     <div class="Page" style="padding-top:12px;">
       ${testMode?'<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🧪 TEST MODE — showing test data only</div>':''}
+      ${darienFreshness ? `<div style="background:#F0F7F2;color:#1B6B3A;font-size:11px;font-weight:700;padding:6px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">📦 Darien on-hand as of ${darienFreshness.toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>` : ''}
       ${lk==='westmont' && pendingDarien.length ? `<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🔔 Darien has ${pendingDarien.length} order${pendingDarien.length!==1?'s':''} awaiting review — tap 📦 Darien above</div>` : ''}
       ${lk==='darien' && openAddons.length ? openAddons.map(a=>{
         const itemLines=Object.keys(a.items||{}).map(id=>{
@@ -620,6 +631,7 @@ async function showDashboard(lk){
         </div>`;
       }).join('') : ''}
       <button class="B B-outline" id="bPrintCenter" style="width:100%;justify-content:center;margin-bottom:12px;">🖨 Print</button>
+      ${lk==='darien' && !testMode ? '<button class="B B-red" id="bDailyOnHand" style="width:100%;justify-content:center;margin-bottom:12px;">🔄 Update On-Hand (takes 20 sec)</button>' : ''}
       <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;">
         ${weekTabs.map(w=>`<button class="B ${w===selectedWeek?'B-red':'B-outline'}" data-week="${w}" style="flex-shrink:0;">Week ${w}</button>`).join('')}
       </div>
@@ -655,6 +667,7 @@ async function showDashboard(lk){
     btn.onclick=()=>{ selectedWeek=Number(btn.dataset.week); showDashboard(lk); };
   });
   document.getElementById('bPrintCenter').onclick=()=>showPrintPicker(lk);
+  if(document.getElementById('bDailyOnHand')) document.getElementById('bDailyOnHand').onclick=()=>showDailyOnHand();
   if(lk==='westmont'){
     document.getElementById('bDarienOrders').onclick=()=>showDarienOrders();
     if(pendingDarien.length && !window.__darienPopupShown){
@@ -692,7 +705,6 @@ async function showDarienOrders(){
           <button class="B B-red" data-view="${o.id}" style="flex:1;justify-content:center;">🔍 View Details</button>
         </div>
         <div style="display:flex;gap:8px;margin-top:8px;">
-          <button class="B B-outline" data-edit="${o.id}" style="flex:1;justify-content:center;">✏️ Edit</button>
           <button class="B B-outline" data-print="${o.id}" style="flex:1;justify-content:center;">🖨 Print</button>
           ${!acked ? `<button class="B B-red" data-ack="${o.id}" style="flex:1;justify-content:center;">✅ Acknowledge</button>` : ''}
         </div>
@@ -715,13 +727,6 @@ async function showDarienOrders(){
     if(viewBtn) viewBtn.onclick=()=>showOrderDetail(o);
     const printBtn=document.querySelector(`[data-print="${o.id}"]`);
     if(printBtn) printBtn.onclick=()=>doPrint(o, LOCATIONS.darien, 'darien');
-    const editBtn=document.querySelector(`[data-edit="${o.id}"]`);
-    if(editBtn) editBtn.onclick=()=>{
-      showModal('Edit '+o.week_label+'?','This reopens the completed numbers so you can fix them. Once it\'s finished again, it overrides this order and has to be re-certified and re-acknowledged, just like a new submission.',[
-        {l:'Cancel',c:'B-outline',fn:closeModal},
-        {l:'Edit',c:'B-red',fn:async ()=>{ closeModal(); await editCompletedOrder(o); }},
-      ]);
-    };
     const ackBtn=document.querySelector(`[data-ack="${o.id}"]`);
     if(ackBtn) ackBtn.onclick=async ()=>{
       await sb.from(TABLE).update({acknowledged:true, acknowledged_at:new Date().toISOString()}).eq('id',o.id);
@@ -807,6 +812,71 @@ async function showOrderDetail(order){
 
   document.getElementById('bDetailBack').onclick=()=>showDarienOrders();
   document.getElementById('bDetailPrint').onclick=()=>printTrackerSheet('ORDER DETAIL', order.week_label, printItems);
+}
+
+// ─── DAILY ON-HAND UPDATE (Darien only, feeds the same weekly record) ───────
+// Quick, no par shown, no certification required — just update the numbers
+// so Westmont always sees a fresh on-hand snapshot. Writes directly into
+// whichever record already represents this week (in_progress or completed),
+// never creates a second parallel record.
+async function showDailyOnHand(){
+  showLoading();
+  const curWeek=currentWeekNumber();
+  const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(5);
+  let record=(data||[]).find(r=>weekNumberForDate(new Date(r.started_at))===curWeek);
+  let isNew=false;
+  if(!record){
+    isNew=true;
+    const monday=targetMondayForDarienOrder(new Date());
+    const week='Week of '+monday.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    const {data:created}=await sb.from(TABLE).insert({location:'darien',week_label:week,counter_name:'Daily Update',counts:{},status:'in_progress',started_at:monday.toISOString()}).select().single();
+    record=created;
+  }
+
+  const rows = CATEGORIES.map(cat=>`
+    <div style="margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;color:#999;text-transform:uppercase;margin-bottom:6px;">${cat.name}</div>
+      <div class="LocBlock">
+      ${cat.items.map(item=>`
+        <div class="ProdRow">
+          <div class="ProdRow-info">
+            <div class="ProdRow-name">${item.name}</div>
+            <div class="ProdRow-meta">${item.unit}</div>
+          </div>
+          <input class="SI" type="number" min="0" step="any" inputmode="decimal" data-onhand-item="${item.id}" placeholder="0" value="${record.counts?.[item.id]||''}">
+        </div>`).join('')}
+      </div>
+    </div>`).join('');
+
+  const lastUpdate = record.onhand_updated_at ? new Date(record.onhand_updated_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : (isNew?'never':new Date(record.completed_at||record.started_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}));
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Daily On-Hand</div>
+      <div class="H-right"><button class="B B-ghost" id="bOnHandCancel">← Cancel</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="font-size:12px;color:#777;margin-bottom:14px;">${record.week_label} · Last updated: ${lastUpdate}</div>
+      ${rows}
+    </div>
+    <div class="Footer no-print">
+      <button class="Fbtn" id="bOnHandCancel2">Cancel</button>
+      <div class="Footer-prog">Quick update — no certification needed</div>
+      <button class="Fbtn Fbtn-next" id="bOnHandSave">💾 Save</button>
+    </div>`;
+
+  document.getElementById('bOnHandCancel').onclick=document.getElementById('bOnHandCancel2').onclick=()=>showDashboard('darien');
+  document.getElementById('bOnHandSave').onclick=async ()=>{
+    const counts={...record.counts};
+    document.querySelectorAll('[data-onhand-item]').forEach(inp=>{
+      counts[inp.dataset.onhandItem]=inp.value.trim();
+    });
+    showLoading();
+    const patch={counts, onhand_updated_at:new Date().toISOString()};
+    if(record.status==='completed'){ patch.acknowledged=false; patch.acknowledged_at=null; }
+    await sb.from(TABLE).update(patch).eq('id',record.id);
+    showDashboard('darien');
+  };
 }
 
 // ─── ADD-ON ORDERS (Darien side) ─────────────────────────────────────────────
@@ -997,12 +1067,9 @@ async function showDeliveries(){
     }).join('');
     const dateStr=new Date(a.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
     return `<div class="LocBlock" style="margin-bottom:16px;">
-      <div style="padding:12px 16px;border-bottom:1px solid #F0F0F0;display:flex;justify-content:space-between;align-items:flex-start;">
-        <div>
-          <div class="LocHeader-name">Add-On · ${a.requested_by||'Unnamed'}</div>
-          <div class="LocHeader-meta">Requested ${dateStr}</div>
-        </div>
-        <button class="B B-outline" data-edit-addon="${a.id}" style="height:26px;padding:0 10px;font-size:10px;flex-shrink:0;">✏️ Edit</button>
+      <div style="padding:12px 16px;border-bottom:1px solid #F0F0F0;">
+        <div class="LocHeader-name">Add-On · ${a.requested_by||'Unnamed'}</div>
+        <div class="LocHeader-meta">Requested ${dateStr}</div>
       </div>
       ${rows || '<div style="padding:12px 16px;font-size:12px;color:#1B6B3A;">✓ Fully picked up</div>'}
     </div>`;
@@ -1070,10 +1137,6 @@ async function showDeliveries(){
 
   document.getElementById('bBackDash').onclick=()=>showDashboard('westmont');
   document.getElementById('bTrackerPrint').onclick=()=>printTrackerSheet('WESTMONT TRACKER', mainOrder?mainOrder.week_label:'', printItems);
-  openAddons.forEach(a=>{
-    const editBtn=document.querySelector(`[data-edit-addon="${a.id}"]`);
-    if(editBtn) editBtn.onclick=()=>showAddOnForm(a, ()=>showDeliveries());
-  });
   document.querySelectorAll('[data-undo]').forEach(btn=>{
     btn.onclick=async ()=>{
       const [source,recordId,itemId]=btn.dataset.undo.split('|');
