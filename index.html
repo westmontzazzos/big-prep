@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '16.2';
+const APP_VERSION = '17.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -245,6 +245,64 @@ async function getOpenAddons(){
 // minus anything delivered against those). Uses only the single most recent
 // Darien weekly order — older ones are just history. Used by both the
 // Dashboard and the live Count screen so the numbers always match.
+// ─── EDIT HISTORY (so an edit is never permanently destructive) ─────────────
+async function saveSnapshot(tableName, recordId, snapshot, label){
+  try{
+    await sb.from('prep_edit_history').insert({table_name:tableName, record_id:String(recordId), snapshot, label});
+  }catch(e){ /* if the history table isn't migrated yet, don't block the edit */ }
+}
+async function getSnapshots(tableName, recordId){
+  const {data,error}=await sb.from('prep_edit_history').select('*').eq('table_name',tableName).eq('record_id',String(recordId)).order('snapshot_at',{ascending:false});
+  return error ? [] : (data||[]);
+}
+
+// Generic history/revert viewer, works for any of the three editable record
+// types. fieldName is which column holds the actual data ('counts' for
+// prep_counts and darien_daily_onhand, 'items' for darien_addons).
+async function showHistory(tableName, recordId, fieldName, backFn){
+  showLoading();
+  const snapshots=await getSnapshots(tableName, recordId);
+  const rows = snapshots.map(s=>{
+    const dateStr=new Date(s.snapshot_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    const itemLines=Object.keys(s.snapshot||{}).filter(k=>!k.startsWith('_')).map(k=>{
+      const item=ITEM_BY_ID[k];
+      if(!item || s.snapshot[k]==='' || s.snapshot[k]==null) return '';
+      return `<div style="font-size:12px;color:#444;padding:2px 0;">${item.name}: <strong>${s.snapshot[k]}</strong></div>`;
+    }).join('');
+    return `<div class="LocBlock" style="margin-bottom:12px;padding:14px 16px;">
+      <div style="font-size:11px;font-weight:700;color:#777;margin-bottom:8px;">${s.label?s.label+' · ':''}${dateStr}</div>
+      <div style="max-height:160px;overflow-y:auto;margin-bottom:10px;">${itemLines||'<div style="font-size:12px;color:#999;">No items recorded in this snapshot.</div>'}</div>
+      <button class="B B-red" data-revert="${s.id}" style="width:100%;justify-content:center;">↩️ Revert to This Version</button>
+    </div>`;
+  }).join('') || '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No history yet for this record.</div>';
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">History</div>
+      <div class="H-right"><button class="B B-ghost" id="bHistoryBack">← Back</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">${rows}</div>`;
+
+  document.getElementById('bHistoryBack').onclick=backFn;
+  const idField = tableName==='darien_daily_onhand' ? 'date' : 'id';
+  snapshots.forEach(s=>{
+    const btn=document.querySelector(`[data-revert="${s.id}"]`);
+    if(btn) btn.onclick=()=>{
+      showModal('Revert to this version?','This replaces the current numbers with this older version. The current version gets saved to history first, so this can be undone too.',[
+        {l:'Cancel',c:'B-outline',fn:closeModal},
+        {l:'Revert',c:'B-red',fn:async ()=>{
+          closeModal();
+          showLoading();
+          const {data:current}=await sb.from(tableName).select('*').eq(idField,recordId).limit(1);
+          if(current && current.length) await saveSnapshot(tableName, recordId, current[0][fieldName]||{}, 'Before revert');
+          await sb.from(tableName).update({[fieldName]:s.snapshot}).eq(idField,recordId);
+          backFn();
+        }},
+      ]);
+    };
+  });
+}
+
 async function getDarienOwedMap(){
   if(testMode) return {};
   const owed={};
@@ -416,6 +474,7 @@ async function openLocation(lk){
 async function editCompletedOrder(row){
   activeLoc=row.location;
   const originalCountsSnapshot = JSON.stringify(row.counts||{});
+  if(!testMode) await saveSnapshot('prep_counts', row.id, row.counts||{}, row.week_label+' — before edit');
   // Important: do NOT write status:'in_progress' to the database here. If we
   // did, and the person backs out without re-completing, the row is left
   // stuck broken — it still has real finished data, but every "latest
@@ -619,7 +678,10 @@ async function showDashboard(lk){
         return `<div style="background:#FFF6E0;border-radius:8px;padding:10px 14px;margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div style="font-size:12px;font-weight:700;color:#8A6300;margin-bottom:4px;">📬 Add-on from ${dateStr} — requested by ${a.requested_by||'Unnamed'}</div>
-            <button class="B B-outline" data-edit-addon="${a.id}" style="height:24px;padding:0 8px;font-size:10px;flex-shrink:0;">✏️ Edit</button>
+            <div style="display:flex;gap:6px;flex-shrink:0;">
+              <button class="B B-outline" data-history-addon="${a.id}" style="height:24px;padding:0 8px;font-size:10px;">🕐</button>
+              <button class="B B-outline" data-edit-addon="${a.id}" style="height:24px;padding:0 8px;font-size:10px;">✏️ Edit</button>
+            </div>
           </div>
           ${itemLines}
         </div>`;
@@ -654,6 +716,8 @@ async function showDashboard(lk){
   if(lk==='darien') openAddons.forEach(a=>{
     const editBtn=document.querySelector(`[data-edit-addon="${a.id}"]`);
     if(editBtn) editBtn.onclick=()=>showAddOnForm(a, ()=>showDashboard('darien'));
+    const histBtn=document.querySelector(`[data-history-addon="${a.id}"]`);
+    if(histBtn) histBtn.onclick=()=>showHistory('darien_addons', a.id, 'items', ()=>showDashboard('darien'));
   });
   if(document.getElementById('bDeliveries')) document.getElementById('bDeliveries').onclick=()=>showDeliveries();
   if(document.getElementById('bDarienTracker')) document.getElementById('bDarienTracker').onclick=()=>showDarienTracker();
@@ -786,6 +850,7 @@ async function showOrderDetail(order){
     <header class="H no-print">
       <div class="H-logo">${order.week_label}</div>
       <div class="H-right">
+        <button class="B B-ghost" id="bDetailHistory">🕐 History</button>
         <button class="B B-ghost" id="bDetailPrint">🖨 Print</button>
         <button class="B B-ghost" id="bDetailBack">← Darien Orders</button>
       </div>
@@ -807,6 +872,7 @@ async function showOrderDetail(order){
 
   document.getElementById('bDetailBack').onclick=()=>showDarienOrders();
   document.getElementById('bDetailPrint').onclick=()=>printTrackerSheet('ORDER DETAIL', order.week_label, printItems);
+  document.getElementById('bDetailHistory').onclick=()=>showHistory('prep_counts', order.id, 'counts', ()=>showOrderDetail(order));
 }
 
 // ─── DAILY ON-HAND (Darien only) ─────────────────────────────────────────────
@@ -848,7 +914,10 @@ async function showDailyOnHand(){
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">Daily On-Hand</div>
-      <div class="H-right"><button class="B B-ghost" id="bOnHandCancel">← Cancel</button></div>
+      <div class="H-right">
+        <button class="B B-ghost" id="bOnHandHistory">🕐 History</button>
+        <button class="B B-ghost" id="bOnHandCancel">← Cancel</button>
+      </div>
     </header>
     <div class="Page" style="padding-top:12px;">
       <div style="font-size:12px;color:#777;margin-bottom:14px;">Today · ${new Date(today+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}${record.updated_at?' · Already saved once today':''}</div>
@@ -865,6 +934,7 @@ async function showDailyOnHand(){
     </div>`;
 
   document.getElementById('bOnHandCancel').onclick=document.getElementById('bOnHandCancel2').onclick=()=>showDashboard('darien');
+  document.getElementById('bOnHandHistory').onclick=()=>showHistory('darien_daily_onhand', today, 'counts', ()=>showDailyOnHand());
   document.getElementById('bOnHandSave').onclick=async ()=>{
     const counts={};
     document.querySelectorAll('[data-onhand-item]').forEach(inp=>{
@@ -872,6 +942,7 @@ async function showDailyOnHand(){
     });
     const updatedBy=document.getElementById('onhandName').value.trim();
     showLoading();
+    if(record.updated_at) await saveSnapshot('darien_daily_onhand', today, record.counts||{}, today+' — before update');
     await sb.from('darien_daily_onhand').upsert({date:today, counts, updated_by:updatedBy, updated_at:new Date().toISOString()}, {onConflict:'date'});
     showDashboard('darien');
   };
@@ -959,6 +1030,7 @@ function showAddOnForm(existing, onDone){
     if(Object.keys(items).length===0){ alert('Enter at least one item quantity before submitting.'); return; }
     showLoading();
     if(existing){
+      await saveSnapshot('darien_addons', existing.id, existing.items||{}, (existing.week_label||'')+' — before edit');
       const delivered=existing.delivered||{};
       const allDone=Object.keys(items).every(k=>Number(delivered[k]||0)>=Number(items[k]||0));
       await sb.from('darien_addons').update({items, requested_by:name, status:allDone?'fulfilled':'open'}).eq('id',existing.id);
