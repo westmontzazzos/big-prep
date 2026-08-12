@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '21.1';
+const APP_VERSION = '21.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1390,7 +1390,7 @@ async function showDarienOrderStatus(editMode){
       ) : ''}
     </div>`;
 
-  document.getElementById('bStatusBack').onclick=()=>showDarienOrderStatus(false);
+  document.getElementById('bStatusBack').onclick=()=>{ editMode ? showDarienOrderStatus(false) : showDarienMenu(); };
   if(document.getElementById('bVerifyOrder')) document.getElementById('bVerifyOrder').onclick=()=>showVerifyOrder(order);
   if(document.getElementById('bEditOrder')) document.getElementById('bEditOrder').onclick=()=>showDarienOrderStatus(true);
   document.querySelectorAll('[data-addon-detail]').forEach(btn=>{
