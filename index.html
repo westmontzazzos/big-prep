@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '18.0';
+const APP_VERSION = '19.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -458,7 +458,49 @@ async function showHome(){
 async function openLocation(lk){
   activeLoc=lk;
   if(lk==='darien') showDarienMenu();
-  else showDashboard(lk);
+  else showWestmontMenu();
+}
+
+// ─── WESTMONT'S SIMPLE MENU (Active Order / Past Orders / Counts) ───────────
+function showWestmontMenu(){
+  activeLoc='westmont';
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">W</div>
+      <div class="H-right"><button class="B B-ghost" id="bMenuHome">🏠 Home</button></div>
+    </header>
+    <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
+      <button class="B B-red" id="bMenuActiveOrder" style="width:100%;justify-content:center;height:64px;font-size:16px;">📋 Active Order</button>
+      <button class="B B-outline" id="bMenuPastOrders" style="width:100%;justify-content:center;height:64px;font-size:16px;">📜 Past Orders</button>
+      <button class="B B-outline" id="bMenuCounts" style="width:100%;justify-content:center;height:64px;font-size:16px;">🔢 Counts</button>
+    </div>`;
+
+  document.getElementById('bMenuHome').onclick=()=>showHome();
+  document.getElementById('bMenuActiveOrder').onclick=()=>showActiveOrder();
+  document.getElementById('bMenuPastOrders').onclick=()=>showPastOrdersMenu();
+  document.getElementById('bMenuCounts').onclick=()=>showDashboard('westmont');
+}
+
+// This week's Darien order + any add-ons tied to it — nothing more, nothing historical.
+async function showActiveOrder(){
+  await showDeliveries();
+}
+
+// ─── PAST ORDERS MENU (Averages / Actual Orders) ────────────────────────────
+function showPastOrdersMenu(){
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">W</div>
+      <div class="H-right"><button class="B B-ghost" id="bPastBack">← Westmont</button></div>
+    </header>
+    <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
+      <button class="B B-red" id="bPastAverages" style="width:100%;justify-content:center;height:64px;font-size:16px;">📊 Averages</button>
+      <button class="B B-outline" id="bPastActual" style="width:100%;justify-content:center;height:64px;font-size:16px;">📁 Actual Orders</button>
+    </div>`;
+
+  document.getElementById('bPastBack').onclick=()=>showWestmontMenu();
+  document.getElementById('bPastAverages').onclick=()=>{ activeLoc='darien'; showAverages(); };
+  document.getElementById('bPastActual').onclick=()=>showDarienOrders();
 }
 
 // ─── DARIEN'S SIMPLE MENU (Place Order / Edit-Add-On / Daily On-Hand) ───────
@@ -472,12 +514,14 @@ function showDarienMenu(){
     <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
       <button class="B B-red" id="bMenuPlaceOrder" style="width:100%;justify-content:center;height:64px;font-size:16px;">📝 Place Order</button>
       <button class="B B-outline" id="bMenuEditAddOn" style="width:100%;justify-content:center;height:64px;font-size:16px;">✏️ Edit Order / Add-On</button>
+      <button class="B B-outline" id="bMenuOrderStatus" style="width:100%;justify-content:center;height:64px;font-size:16px;">📊 Order Status</button>
       <button class="B B-outline" id="bMenuOnHand" style="width:100%;justify-content:center;height:64px;font-size:16px;">🔄 Daily On-Hand</button>
     </div>`;
 
   document.getElementById('bMenuHome').onclick=()=>showHome();
   document.getElementById('bMenuPlaceOrder').onclick=()=>goToCounting('darien');
   document.getElementById('bMenuOnHand').onclick=()=>showDailyOnHand();
+  document.getElementById('bMenuOrderStatus').onclick=()=>showDarienOrderStatus();
   document.getElementById('bMenuEditAddOn').onclick=async ()=>{
     showLoading();
     const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(1);
@@ -801,12 +845,12 @@ async function showDarienOrders(){
     <header class="H no-print">
       <div class="H-logo">Darien Orders</div>
       <div class="H-right">
-        <button class="B B-ghost" id="bBackDash">← Westmont</button>
+        <button class="B B-ghost" id="bBackDash">← Past Orders</button>
       </div>
     </header>
     <div class="Page" style="padding-top:12px;">${rows}</div>`;
 
-  document.getElementById('bBackDash').onclick=()=>showDashboard('westmont');
+  document.getElementById('bBackDash').onclick=()=>showPastOrdersMenu();
   orders.forEach(o=>{
     const viewBtn=document.querySelector(`[data-view="${o.id}"]`);
     if(viewBtn) viewBtn.onclick=()=>showOrderDetail(o);
@@ -821,7 +865,9 @@ async function showDarienOrders(){
 }
 
 // ─── ORDER DETAIL (search any week, complete order + what happened) ─────────
-async function showOrderDetail(order){
+async function showOrderDetail(order, backFn, title){
+  backFn = backFn || (()=>showDarienOrders());
+  const backLabel = title ? '← Westmont' : '← Darien Orders';
   showLoading();
   const darienPars=await loadPars('darien');
   const {data:weekAddons}=await sb.from('darien_addons').select('*').eq('week_label',order.week_label);
@@ -876,16 +922,17 @@ async function showOrderDetail(order){
 
   app.innerHTML = `
     <header class="H no-print">
-      <div class="H-logo">${order.week_label}</div>
+      <div class="H-logo">${title||order.week_label}</div>
       <div class="H-right">
         <button class="B B-ghost" id="bDetailHistory">🕐 History</button>
         <button class="B B-ghost" id="bDetailPrint">🖨 Print</button>
-        <button class="B B-ghost" id="bDetailBack">← Darien Orders</button>
+        <button class="B B-ghost" id="bDetailBack">${backLabel}</button>
       </div>
     </header>
     <div class="Page" style="padding-top:12px;">
       <div class="LocBlock" style="margin-bottom:16px;padding:14px 16px;">
         <div style="font-size:12px;color:#777;line-height:1.7;">
+          ${title?`<div><strong>Week:</strong> ${order.week_label}</div>`:''}
           <div><strong>Counted by:</strong> ${order.counter_name}</div>
           ${certBy?`<div><strong>Certified by:</strong> ${certBy}</div>`:''}
           ${certAt?`<div><strong>Certified:</strong> ${new Date(certAt).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>`:''}
@@ -898,9 +945,9 @@ async function showOrderDetail(order){
       ${addons.length?'<div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Add-Ons This Week</div><div class="LocBlock">'+addonRows+'</div>':''}
     </div>`;
 
-  document.getElementById('bDetailBack').onclick=()=>showDarienOrders();
+  document.getElementById('bDetailBack').onclick=backFn;
   document.getElementById('bDetailPrint').onclick=()=>printTrackerSheet('ORDER DETAIL', order.week_label, printItems);
-  document.getElementById('bDetailHistory').onclick=()=>showHistory('prep_counts', order.id, 'counts', ()=>showOrderDetail(order));
+  document.getElementById('bDetailHistory').onclick=()=>showHistory('prep_counts', order.id, 'counts', ()=>showOrderDetail(order, backFn, title));
 }
 
 // ─── DAILY ON-HAND (Darien only) ─────────────────────────────────────────────
@@ -1095,6 +1142,65 @@ function deliveryRow(item, remaining, deliveredQty, source, recordId){
 // weekly order + darien_addons), just shown from Darien's side: what did we
 // order, and what's actually shown up so far. No inputs — Darien can see it,
 // only Westmont can mark things picked up.
+// Darien's own "Order Status" tile — this week's order as a real table:
+// Item | Ordered | Add-Ons | Total | Picked Up (✓). No on-hand shown here —
+// that stays Westmont-only.
+async function showDarienOrderStatus(){
+  showLoading();
+  const curWeek=currentWeekNumber();
+  const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(5);
+  const order=(data||[]).find(r=>weekNumberForDate(new Date(r.started_at))===curWeek);
+
+  let rows='';
+  if(order){
+    const delivered=order.delivered||{};
+    const {data:weekAddons}=await sb.from('darien_addons').select('*').eq('week_label',order.week_label);
+    const addons=weekAddons||[];
+    ALL_ITEMS.forEach(item=>{
+      const ordered=Number(order.counts?.[item.id]||0);
+      let addonQty=0, addonDelivered=0;
+      addons.forEach(a=>{
+        addonQty+=Number((a.items||{})[item.id]||0);
+        addonDelivered+=Number((a.delivered||{})[item.id]||0);
+      });
+      const total=ordered+addonQty;
+      if(total<=0) return;
+      const pickedUp=Number(delivered[item.id]||0)+addonDelivered;
+      const done=pickedUp>=total;
+      rows+=`<tr style="${done?'background:#E8F5ED;':''}">
+        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;">${ordered||'—'}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:800;">${total}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:15px;text-align:center;">${done?'✅':''}</td>
+      </tr>`;
+    });
+  }
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Order Status</div>
+      <div class="H-right"><button class="B B-ghost" id="bStatusBack">← Darien</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      ${order ? `<div style="font-size:12px;color:#777;margin-bottom:12px;">${order.week_label}</div>` : ''}
+      <div class="LocBlock" style="overflow-x:auto;">
+        ${order ? `<table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:#F7F7F7;">
+            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;text-align:left;">Item</th>
+            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">Ordered</th>
+            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">Add-Ons</th>
+            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">Total</th>
+            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">✓</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#999;font-size:13px;">Nothing ordered yet this week.</td></tr>'}</tbody>
+        </table>` : '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No order has been placed yet this week.</div>'}
+      </div>
+    </div>`;
+
+  document.getElementById('bStatusBack').onclick=()=>showDarienMenu();
+}
+
 async function showDarienTracker(){
   showLoading();
   const darienPars=await loadPars('darien');
@@ -1264,7 +1370,7 @@ async function showDeliveries(){
       ${deliveredLog.length ? '<div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;margin-top:8px;">✅ Picked Up</div><div class="LocBlock">'+deliveredRows+'</div>' : ''}
     </div>`;
 
-  document.getElementById('bBackDash').onclick=()=>showDashboard('westmont');
+  document.getElementById('bBackDash').onclick=()=>showWestmontMenu();
   document.getElementById('bTrackerPrint').onclick=()=>printTrackerSheet('WESTMONT TRACKER', mainOrder?mainOrder.week_label:'', printItems);
   document.querySelectorAll('[data-undo]').forEach(btn=>{
     btn.onclick=async ()=>{
