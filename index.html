@@ -119,7 +119,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '17.0';
+const APP_VERSION = '18.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -159,7 +159,7 @@ const ITEM_BY_ID = Object.fromEntries(ALL_ITEMS.map(i=>[i.id,i]));
 
 const LOCATIONS = {
   westmont:{name:'Westmont', abbr:'W', emoji:'🍳', sub:'Production count', fieldLabel:'Made', actionLabel:'Count'},
-  darien:{name:'Darien', abbr:'D', emoji:'📦', sub:'On-hand → auto order', fieldLabel:'On Hand', actionLabel:'Place Order'},
+  darien:{name:'Darien', abbr:'D', emoji:'📦', sub:'Order & on-hand', fieldLabel:'Ordering', actionLabel:'Place Order'},
 };
 
 // ─── WEEK NUMBERING ──────────────────────────────────────────────────────────
@@ -308,15 +308,12 @@ async function getDarienOwedMap(){
   const owed={};
   const {data:latestD}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
   if(latestD && latestD.length){
-    const darienPars=await loadPars('darien');
     const mainDelivered=latestD[0].delivered||{};
     ALL_ITEMS.forEach(item=>{
-      const par=darienPars[item.id];
-      if(par==null) return;
-      const onHand=Number(latestD[0].counts?.[item.id]||0);
-      const need=Math.max(par-onHand,0);
+      const ordered=Number(latestD[0].counts?.[item.id]||0);
+      if(ordered<=0) return;
       const delivered=Number(mainDelivered[item.id]||0);
-      owed[item.id]=Math.max(need-delivered,0);
+      owed[item.id]=Math.max(ordered-delivered,0);
     });
   }
   const openAddons=await getOpenAddons();
@@ -344,13 +341,9 @@ async function getDarienAllocatedMap(){
   let weekLabel=null;
   if(latestD && latestD.length){
     weekLabel=latestD[0].week_label;
-    const darienPars=await loadPars('darien');
     ALL_ITEMS.forEach(item=>{
-      const par=darienPars[item.id];
-      if(par==null) return;
-      const onHand=Number(latestD[0].counts?.[item.id]||0);
-      const need=Math.max(par-onHand,0);
-      if(need>0) allocated[item.id]=need;
+      const ordered=Number(latestD[0].counts?.[item.id]||0);
+      if(ordered>0) allocated[item.id]=ordered;
     });
   }
   if(weekLabel){
@@ -464,7 +457,40 @@ async function showHome(){
 
 async function openLocation(lk){
   activeLoc=lk;
-  showDashboard(lk);
+  if(lk==='darien') showDarienMenu();
+  else showDashboard(lk);
+}
+
+// ─── DARIEN'S SIMPLE MENU (Place Order / Edit-Add-On / Daily On-Hand) ───────
+function showDarienMenu(){
+  activeLoc='darien';
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">D</div>
+      <div class="H-right"><button class="B B-ghost" id="bMenuHome">🏠 Home</button></div>
+    </header>
+    <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
+      <button class="B B-red" id="bMenuPlaceOrder" style="width:100%;justify-content:center;height:64px;font-size:16px;">📝 Place Order</button>
+      <button class="B B-outline" id="bMenuEditAddOn" style="width:100%;justify-content:center;height:64px;font-size:16px;">✏️ Edit Order / Add-On</button>
+      <button class="B B-outline" id="bMenuOnHand" style="width:100%;justify-content:center;height:64px;font-size:16px;">🔄 Daily On-Hand</button>
+    </div>`;
+
+  document.getElementById('bMenuHome').onclick=()=>showHome();
+  document.getElementById('bMenuPlaceOrder').onclick=()=>goToCounting('darien');
+  document.getElementById('bMenuOnHand').onclick=()=>showDailyOnHand();
+  document.getElementById('bMenuEditAddOn').onclick=async ()=>{
+    showLoading();
+    const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(1);
+    const curWeek=currentWeekNumber();
+    const thisWeekOrder=(data||[]).find(r=>weekNumberForDate(new Date(r.started_at))===curWeek);
+    showModal('Edit Order or Add-On?', thisWeekOrder
+      ? 'Choose whether you want to fix this week\'s already-entered order, or add something extra on top of it.'
+      : 'No order has been entered yet this week, so there\'s nothing to edit — but you can still submit an add-on if needed.', [
+      {l:'Cancel',c:'B-outline',fn:closeModal},
+      {l:'Add-On',c:'B-outline',fn:()=>{ closeModal(); showAddOnForm(null, ()=>showDarienMenu()); }},
+      ...(thisWeekOrder ? [{l:'Edit Order',c:'B-red',fn:()=>{ closeModal(); editCompletedOrder(thisWeekOrder); }}] : []),
+    ]);
+  };
 }
 
 // ─── EDIT A COMPLETED ORDER/COUNT ────────────────────────────────────────────
@@ -595,7 +621,7 @@ async function showDashboard(lk){
     if(showOrderedCol){
       const par=pars[item.id];
       if(par!=null && countVal!==''){
-        const baseOrder=Math.max(par-Number(countVal),0);
+        const baseOrder=Number(countVal);
         let addonQty=0, addonDelivered=0, mainDelivered=Number((activeSession.delivered||{})[item.id]||0);
         weekAddons.forEach(a=>{
           const req=Number((a.items||{})[item.id]||0);
@@ -810,8 +836,9 @@ async function showOrderDetail(order){
   const itemRows = ALL_ITEMS.map(item=>{
     const par=darienPars[item.id];
     if(par==null) return '';
-    const onHand=Number(order.counts?.[item.id]||0);
-    const baseOrder=Math.max(par-onHand,0);
+    const ordered_raw=Number(order.counts?.[item.id]||0);
+    const onHandCalc=par-ordered_raw;
+    const baseOrder=ordered_raw;
     let addonQty=0, addonDelivered=0;
     addons.forEach(a=>{
       addonQty+=Number((a.items||{})[item.id]||0);
@@ -826,10 +853,11 @@ async function showOrderDetail(order){
     return `<div class="ProdRow" style="${received?'background:#E8F5ED;':''}">
       <div class="ProdRow-info">
         <div class="ProdRow-name">${item.name}</div>
-        <div class="ProdRow-meta">${item.unit} · Par ${par} · On Hand ${onHand}</div>
+        <div class="ProdRow-meta">${item.unit} · Par ${par}</div>
       </div>
       <div style="display:flex;gap:14px;align-items:center;text-align:center;flex-shrink:0;">
         <div style="width:54px;"><div style="font-size:9px;color:#999;text-transform:uppercase;font-weight:700;">Ordered</div><div style="font-size:13px;font-weight:700;color:#111;">${ordered}</div>${addonQty>0?`<div style="font-size:9px;font-weight:700;color:#1B6B3A;">+${addonQty}</div>`:''}</div>
+        <div style="width:54px;"><div style="font-size:9px;color:#8A6300;text-transform:uppercase;font-weight:700;">On Hand</div><div style="font-size:13px;font-weight:700;color:#8A6300;">${onHandCalc}</div></div>
         <div style="width:64px;"><div style="font-size:9px;color:#1B6B3A;text-transform:uppercase;font-weight:700;">Picked Up</div><div style="font-size:13px;font-weight:700;color:#1B6B3A;">${pickedUp}${received?' ✅':''}</div></div>
       </div>
     </div>`;
@@ -893,6 +921,7 @@ async function getLatestDailyOnHand(){
 async function showDailyOnHand(){
   showLoading();
   const today=todayDateStr();
+  const darienPars=await loadPars('darien');
   const {data:existing}=await sb.from('darien_daily_onhand').select('*').eq('date',today).limit(1);
   const record=(existing && existing.length) ? existing[0] : {date:today, counts:{}, updated_by:'', updated_at:null};
 
@@ -900,14 +929,17 @@ async function showDailyOnHand(){
     <div style="margin-bottom:14px;">
       <div style="font-size:11px;font-weight:700;color:#999;text-transform:uppercase;margin-bottom:6px;">${cat.name}</div>
       <div class="LocBlock">
-      ${cat.items.map(item=>`
+      ${cat.items.map(item=>{
+        const par=darienPars[item.id];
+        return `
         <div class="ProdRow">
           <div class="ProdRow-info">
-            <div class="ProdRow-name">${item.name}</div>
+            <div class="ProdRow-name">${item.name}${par!=null?` <span style="color:#999;font-weight:400;">(Par: ${par})</span>`:''}</div>
             <div class="ProdRow-meta">${item.unit}</div>
           </div>
           <input class="SI" type="number" min="0" step="any" inputmode="decimal" data-onhand-item="${item.id}" placeholder="0" value="${record.counts?.[item.id]||''}">
-        </div>`).join('')}
+        </div>`;
+      }).join('')}
       </div>
     </div>`).join('');
 
@@ -982,7 +1014,7 @@ async function showDailyOnHandView(){
 // A lightweight, direct-quantity request that can be submitted any time
 // during the week, separate from the standard weekly On Hand → Need order.
 function showAddOnForm(existing, onDone){
-  onDone = onDone || (()=>showDashboard('darien'));
+  onDone = onDone || (()=>showDarienMenu());
   const weekLbl = existing ? existing.week_label : 'Week of '+targetMondayForDarienOrder(new Date()).toLocaleDateString('en-US',{month:'short',day:'numeric'});
   const existingItems = existing ? (existing.items||{}) : {};
   const rows = CATEGORIES.map(cat=>`
@@ -1082,8 +1114,7 @@ async function showDarienTracker(){
     ALL_ITEMS.forEach(item=>{
       const par=darienPars[item.id];
       if(par==null) return;
-      const onHand=Number(mainOrder.counts?.[item.id]||0);
-      const baseOrder=Math.max(par-onHand,0);
+      const baseOrder=Number(mainOrder.counts?.[item.id]||0);
       let addonQty=0, addonDelivered=0;
       weekAddons.forEach(a=>{
         addonQty+=Number((a.items||{})[item.id]||0);
@@ -1141,8 +1172,7 @@ async function showDeliveries(){
     ALL_ITEMS.forEach(item=>{
       const par=darienPars[item.id];
       if(par==null) return;
-      const onHand=Number(mainOrder.counts?.[item.id]||0);
-      const need=Math.max(par-onHand,0);
+      const need=Number(mainOrder.counts?.[item.id]||0);
       const deliveredQty=Number(delivered[item.id]||0);
       if(deliveredQty>0) deliveredLog.push({item, qty:deliveredQty, source:'Weekly Order', date:mainOrder.completed_at, recordType:'main', recordId:mainOrder.id});
       if(need<=0) return;
@@ -1206,8 +1236,7 @@ async function showDeliveries(){
     ALL_ITEMS.forEach(item=>{
       const par=darienPars[item.id];
       if(par==null) return;
-      const onHand=Number(mainOrder.counts?.[item.id]||0);
-      const baseOrder=Math.max(par-onHand,0);
+      const baseOrder=Number(mainOrder.counts?.[item.id]||0);
       let addonQty=0, addonDelivered=0;
       [...openAddons,...(fulfilledAddons||[])].forEach(a=>{
         addonQty+=Number((a.items||{})[item.id]||0);
@@ -1548,7 +1577,7 @@ function showSetupModal(lk){
   document.getElementById('setupWeekDate').oninput=updateWeekPreview;
   updateWeekPreview();
 
-  document.getElementById('setupCancel').onclick=()=>{ closeModal(); showDashboard(lk); };
+  document.getElementById('setupCancel').onclick=()=>{ closeModal(); lk==='darien'?showDarienMenu():showDashboard(lk); };
   document.getElementById('setupStart').onclick=async ()=>{
     const raw=document.getElementById('setupWeekDate').value;
     const picked = raw ? new Date(raw+'T00:00:00') : new Date();
@@ -1567,7 +1596,7 @@ function showSetupModal(lk){
     }
     showLoading();
     const {data,error}=await sb.from(TABLE).insert({location:lk,week_label:week,counter_name:counter,counts:{},status:'in_progress',started_at:monday.toISOString()}).select().single();
-    if(error){ alert('Could not start session: '+error.message); showDashboard(lk); return; }
+    if(error){ alert('Could not start session: '+error.message); lk==='darien'?showDarienMenu():showDashboard(lk); return; }
     session=data; session.counts=session.counts||{};
     openCat=CATEGORIES[0].name;
     currentPars=await loadPars(lk);
@@ -1596,19 +1625,15 @@ function showCount(){
       if(activeLoc==='darien'){
         const par=currentPars[item.id];
         const parTxt = par!=null ? ('Par '+par) : 'No par set yet';
-        const need = (par!=null && val!=='') ? Math.max(par-Number(val),0) : null;
         return `<div class="ProdRow">
           <div class="ProdRow-info">
             <div class="ProdRow-name">${item.name}</div>
             <div class="ProdRow-meta">${item.unit} · ${parTxt}</div>
           </div>
           <div class="DualInput">
-            <div class="IG"><label>On Hand</label>
+            <div class="IG"><label>Ordering</label>
               <input class="SI${val!==''?' filled':''}" type="number" min="0" step="any" inputmode="decimal"
                 data-item="${item.id}" data-cat="${cat.name}" value="${val}" placeholder="0">
-            </div>
-            <div class="IG"><label>Need</label>
-              <div class="SI-readonly" data-need="${item.id}">${need!=null?need:'—'}</div>
             </div>
           </div>
         </div>`;
@@ -1675,7 +1700,7 @@ function showCount(){
       <button class="Fbtn Fbtn-next" id="bFinish">${activeLoc==='darien'?'✅ I Confirm — Accurate':'✅ Complete'}</button>
     </div>`;
 
-  document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>showDashboard(activeLoc);
+  document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>{ activeLoc==='darien' ? showDarienMenu() : showDashboard(activeLoc); };
   document.getElementById('bAvg').onclick=()=>showAverages();
   document.getElementById('bNotes').onclick=()=>showNotes(showCount, testMode?null:session.id, session.week_label);
   document.getElementById('bClear').onclick=()=>{
@@ -1763,13 +1788,7 @@ function refreshTotal(itemId){
   el.textContent = (val!=='' && val!=null) ? ('= '+(Number(val)*item.mult)+' '+item.baseUnit) : '';
 }
 function refreshNeed(itemId){
-  if(activeLoc!=='darien') return;
-  const el=document.querySelector(`[data-need="${itemId}"]`);
-  if(!el) return;
-  const par=currentPars[itemId];
-  const val=session.counts[itemId];
-  if(par==null || val==='' || val==null){ el.textContent='—'; return; }
-  el.textContent = Math.max(par-Number(val),0);
+  return; // Darien no longer has a calculated Need box - they enter Ordering directly
 }
 
 function refreshTrue(itemId){
@@ -1811,13 +1830,13 @@ async function finishAndPrint(cert){
   if(testMode){
     doPrint({...session, counts, completed_at:completedAt}, LOCATIONS[lk], lk);
     testSessions[lk]=null;
-    showDashboard(lk);
+    lk==='darien'?showDarienMenu():showDashboard(lk);
     return;
   }
   showLoading();
   await sb.from(TABLE).update({counts, status:'completed', completed_at:completedAt, acknowledged:false, acknowledged_at:null}).eq('id',session.id);
   doPrint({...session, counts, completed_at:completedAt}, LOCATIONS[lk], lk);
-  showDashboard(lk);
+  lk==='darien'?showDarienMenu():showDashboard(lk);
 }
 
 async function doPrint(finalSession, loc, lk){
@@ -1840,8 +1859,8 @@ async function doPrint(finalSession, loc, lk){
       <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:40%;border-right:1px solid #8B0000;">Item</td>
       ${isDarien
         ? `<td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;border-right:1px solid #8B0000;">Par</td>
-      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;border-right:1px solid #8B0000;">On Hand</td>
-      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;">Need</td>`
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;border-right:1px solid #8B0000;">Ordering</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;">On Hand</td>`
         : `<td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:25%;border-right:1px solid #8B0000;">Unit</td>
       <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:17%;border-right:1px solid #8B0000;">${loc.fieldLabel}</td>
       <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:18%;">Total</td>`
@@ -1851,12 +1870,12 @@ async function doPrint(finalSession, loc, lk){
       const val=finalSession.counts[item.id] ?? '';
       if(isDarien){
         const par=currentPars[item.id];
-        const need=(par!=null && val!=='') ? Math.max(par-Number(val),0) : '';
+        const onHandCalc=(par!=null && val!=='') ? (par-Number(val)) : '';
         tableRows+=`<tr>
         <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;font-family:'Inter',system-ui,sans-serif;">${item.name}</td>
         <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;color:#555;text-align:center;font-family:'Inter',system-ui,sans-serif;">${par!=null?par:'—'}</td>
         <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#111;font-family:'Inter',system-ui,sans-serif;">${val}</td>
-        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#1B6B3A;font-family:'Inter',system-ui,sans-serif;">${need}</td>
+        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#8A6300;font-family:'Inter',system-ui,sans-serif;">${onHandCalc}</td>
       </tr>`;
         return;
       }
