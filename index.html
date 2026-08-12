@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '21.6';
+const APP_VERSION = '21.7';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -621,15 +621,16 @@ async function showOrderLog(orderId, weekLabel){
   const {data:events}=await sb.from('order_activity_log').select('*').eq('order_id',orderId).order('created_at',{ascending:true});
   const list=events||[];
 
-  const rows=list.map(e=>{
+  const rows=list.map((e,i)=>{
     const icon=EVENT_ICONS[e.event_type]||'•';
     const dateStr=new Date(e.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
-    return `<div style="display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid #F0F0F0;">
+    return `<div data-log-event="${i}" style="display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid #F0F0F0;cursor:pointer;">
       <div style="font-size:20px;flex-shrink:0;">${icon}</div>
-      <div>
+      <div style="flex:1;">
         <div style="font-size:13px;font-weight:600;color:#111;">${e.description}</div>
         <div style="font-size:11px;color:#999;margin-top:2px;">${dateStr}</div>
       </div>
+      <div style="font-size:16px;color:#C8102E;flex-shrink:0;">›</div>
     </div>`;
   }).join('') || '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No activity logged for this order yet.</div>';
 
@@ -643,7 +644,78 @@ async function showOrderLog(orderId, weekLabel){
       <div class="LocBlock">${rows}</div>
     </div>`;
 
+  list.forEach((e,i)=>{
+    const el=document.querySelector(`[data-log-event="${i}"]`);
+    if(el) el.onclick=()=>showLogEventDetail(orderId, weekLabel, e);
+  });
   document.getElementById('bOrderLogBack').onclick=()=>showLogMenu();
+}
+
+// Tapping a log entry shows the REAL structured data behind it, not just
+// the one-line description.
+async function showLogEventDetail(orderId, weekLabel, event){
+  showLoading();
+  const {data:orderRows}=await sb.from(TABLE).select('*').eq('id',orderId).limit(1);
+  const order=(orderRows&&orderRows.length)?orderRows[0]:null;
+  const {data:weekAddons}=await sb.from('darien_addons').select('*').eq('week_label',weekLabel);
+  const addons=weekAddons||[];
+
+  let title='Details', rows='';
+
+  if(['placed','edited','acknowledged'].includes(event.event_type)){
+    title='Order Items';
+    rows = order ? ALL_ITEMS.map(item=>{
+      const val=order.counts?.[item.id];
+      if(val==null || val==='' || Number(val)<=0) return '';
+      return `<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div><div class="ProdRow-meta">${item.unit}</div></div><div style="font-weight:700;">${val}</div></div>`;
+    }).join('') : '';
+  } else if(event.event_type==='picked_up'){
+    title='Items Picked Up';
+    const delivered=order?.delivered||{};
+    rows = ALL_ITEMS.map(item=>{
+      const mainQty=Number(delivered[item.id]||0);
+      const addonQty=addons.reduce((s,a)=>s+Number((a.delivered||{})[item.id]||0),0);
+      const total=mainQty+addonQty;
+      if(total<=0) return '';
+      return `<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div><div class="ProdRow-meta">${mainQty>0?'Sunday: '+mainQty:''}${mainQty>0&&addonQty>0?' · ':''}${addonQty>0?'Add-On: '+addonQty:''}</div></div><div style="font-weight:700;color:#1B6B3A;">✅ ${total}</div></div>`;
+    }).join('');
+  } else if(event.event_type==='verified_correct' || event.event_type==='reported_missing'){
+    const {data:verifs}=await sb.from('darien_verifications').select('*').eq('order_id',orderId).order('verified_at',{ascending:false});
+    const matching=(verifs||[]).find(v=>Math.abs(new Date(v.verified_at)-new Date(event.created_at))<5000) || (verifs&&verifs[0]);
+    if(matching && !matching.is_correct){
+      title='Missing Items Reported';
+      rows = Object.keys(matching.missing_items||{}).map(k=>{
+        const item=ITEM_BY_ID[k]; if(!item) return '';
+        return `<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div></div><div style="font-weight:700;color:#C8102E;">${matching.missing_items[k]} short</div></div>`;
+      }).join('');
+    } else {
+      title='Items Confirmed Matching';
+      rows = order ? ALL_ITEMS.map(item=>{
+        const ordered=Number(order.counts?.[item.id]||0);
+        const addonQty=addons.reduce((s,a)=>s+Number((a.items||{})[item.id]||0),0);
+        const total=ordered+addonQty;
+        if(total<=0) return '';
+        return `<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div></div><div style="font-weight:700;color:#1B6B3A;">✅ ${total}</div></div>`;
+      }).join('') : '';
+    }
+  } else if(event.event_type==='addon_submitted' || event.event_type==='addon_edited'){
+    title='Add-On Items';
+    rows = addons.map(a=>`<div style="padding:8px 16px;font-size:11px;font-weight:700;color:#777;text-transform:uppercase;">${a.requested_by||'Unnamed'} · ${new Date(a.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>` +
+      Object.keys(a.items||{}).map(k=>{ const item=ITEM_BY_ID[k]; if(!item) return ''; return `<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div></div><div style="font-weight:700;color:#1B6B3A;">${a.items[k]}</div></div>`; }).join('')
+    ).join('');
+  }
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">${title}</div>
+      <div class="H-right"><button class="B B-ghost" id="bEventDetailBack">← Thread</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="font-size:12px;color:#777;margin-bottom:12px;">${event.description}</div>
+      <div class="LocBlock">${rows || '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">Nothing to show for this event.</div>'}</div>
+    </div>`;
+
+  document.getElementById('bEventDetailBack').onclick=()=>showOrderLog(orderId, weekLabel);
 }
 
 function showOrdersMenu(){
