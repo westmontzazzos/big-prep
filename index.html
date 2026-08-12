@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '21.0';
+const APP_VERSION = '21.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1334,20 +1334,21 @@ async function showDarienOrderStatus(editMode){
     weekAddonsGlobal=addons;
     ALL_ITEMS.forEach(item=>{
       const ordered=Number(order.counts?.[item.id]||0);
-      let addonQty=0, addonDelivered=0;
-      addons.forEach(a=>{
-        addonQty+=Number((a.items||{})[item.id]||0);
-        addonDelivered+=Number((a.delivered||{})[item.id]||0);
-      });
+      const itemAddons=addons.filter(a=>Number((a.items||{})[item.id]||0)>0);
+      const addonQty=itemAddons.reduce((s,a)=>s+Number((a.items||{})[item.id]||0),0);
+      const addonDelivered=itemAddons.reduce((s,a)=>s+Number((a.delivered||{})[item.id]||0),0);
       const total=ordered+addonQty;
       if(total<=0 && !editMode) return;
       const pickedUp=Number(delivered[item.id]||0)+addonDelivered;
       const done=pickedUp>=total;
       if(editMode){
+        const addonCellContent = itemAddons.length
+          ? `<button class="B B-outline" data-addon-detail="${item.id}" style="height:34px;padding:0 8px;font-size:12px;color:#1B6B3A;">${addonQty} (${itemAddons.length}) ✏️</button>`
+          : `<button class="B B-outline" data-addon-detail="${item.id}" style="height:34px;padding:0 8px;font-size:12px;color:#999;">+ Add</button>`;
         rows+=`<tr>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}</td>
           <td style="padding:6px 10px;border-bottom:1px solid #EEE;text-align:center;"><input class="SI" type="number" min="0" step="any" inputmode="decimal" data-edit-ordered="${item.id}" value="${ordered}" style="width:64px;height:34px;font-size:13px;"></td>
-          <td style="padding:6px 10px;border-bottom:1px solid #EEE;text-align:center;"><input class="SI" type="number" min="0" step="any" inputmode="decimal" data-edit-addon="${item.id}" value="${addonQty}" style="width:64px;height:34px;font-size:13px;color:#1B6B3A;"></td>
+          <td style="padding:6px 10px;border-bottom:1px solid #EEE;text-align:center;">${addonCellContent}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:800;" data-total-cell="${item.id}">${total}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:15px;text-align:center;">${done?'✅':''}</td>
         </tr>`;
@@ -1384,7 +1385,7 @@ async function showDarienOrderStatus(editMode){
         </table>` : '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No order has been placed yet this week.</div>'}
       </div>
       ${order ? (editMode
-        ? '<button class="B B-red" id="bSaveEdit" style="width:100%;justify-content:center;height:48px;margin-top:16px;">💾 Save</button>'
+        ? '<button class="B B-red" id="bSaveEdit" style="width:100%;justify-content:center;height:48px;margin-top:16px;">💾 Save Order Changes</button>'
         : '<button class="B B-outline" id="bEditOrder" style="width:100%;justify-content:center;height:48px;margin-top:16px;">✏️ Edit / Add-On</button><button class="B B-red" id="bVerifyOrder" style="width:100%;justify-content:center;height:48px;margin-top:10px;">✅ Verify Order</button>'
       ) : ''}
     </div>`;
@@ -1392,6 +1393,9 @@ async function showDarienOrderStatus(editMode){
   document.getElementById('bStatusBack').onclick=()=>showDarienOrderStatus(false);
   if(document.getElementById('bVerifyOrder')) document.getElementById('bVerifyOrder').onclick=()=>showVerifyOrder(order);
   if(document.getElementById('bEditOrder')) document.getElementById('bEditOrder').onclick=()=>showDarienOrderStatus(true);
+  document.querySelectorAll('[data-addon-detail]').forEach(btn=>{
+    btn.onclick=()=>showAddonDetailEditor(order, btn.dataset.addonDetail, weekAddonsGlobal);
+  });
   if(document.getElementById('bSaveEdit')){
     document.getElementById('bSaveEdit').onclick=async ()=>{
       const editorName=document.getElementById('editorName').value.trim()||'Unnamed';
@@ -1411,44 +1415,74 @@ async function showDarienOrderStatus(editMode){
       if(orderChanges.length){
         await saveSnapshot('prep_counts', order.id, order.counts||{}, order.week_label+' — before inline edit');
         await sb.from(TABLE).update({counts:newCounts, acknowledged:false, acknowledged_at:null}).eq('id',order.id);
+        await logActivity(order.id, order.week_label, 'edited', `Edited by ${editorName}: ${orderChanges.map(c=>'Order '+c).join('; ')}`, editorName);
       }
-
-      // Add-ons: reconcile against the single most-relevant add-on record this week (create one if needed)
-      const addonChanges=[];
-      const addonNewTotals={};
-      document.querySelectorAll('[data-edit-addon]').forEach(inp=>{
-        const itemId=inp.dataset.editAddon;
-        addonNewTotals[itemId]=Number(inp.value.trim()||0);
-      });
-      const anyAddonChanged=Object.keys(addonNewTotals).some(itemId=>{
-        let curTotal=0;
-        weekAddonsGlobal.forEach(a=>{ curTotal+=Number((a.items||{})[itemId]||0); });
-        return curTotal!==addonNewTotals[itemId];
-      });
-      if(anyAddonChanged){
-        let target=weekAddonsGlobal[0];
-        if(target) await saveSnapshot('darien_addons', target.id, target.items||{}, order.week_label+' — before inline edit');
-        const newItems={};
-        Object.keys(addonNewTotals).forEach(itemId=>{
-          if(addonNewTotals[itemId]>0){
-            newItems[itemId]=String(addonNewTotals[itemId]);
-            const item=ITEM_BY_ID[itemId];
-            const before=target?Number((target.items||{})[itemId]||0):0;
-            if(before!==addonNewTotals[itemId]) addonChanges.push(`${item?item.name:itemId}: ${before}→${addonNewTotals[itemId]}`);
-          }
-        });
-        if(target){
-          await sb.from('darien_addons').update({items:newItems, requested_by:editorName}).eq('id',target.id);
-        } else if(Object.keys(newItems).length){
-          await sb.from('darien_addons').insert({week_label:order.week_label, requested_by:editorName, items:newItems, delivered:{}, status:'open'});
-        }
-      }
-
-      const summary=[...orderChanges.map(c=>'Order '+c), ...addonChanges.map(c=>'Add-on '+c)].join('; ');
-      if(summary) await logActivity(order.id, order.week_label, 'edited', `Edited by ${editorName}: ${summary}`, editorName);
       showDarienOrderStatus(false);
     };
   }
+}
+
+// Per-item add-on editor: shows EVERY individual add-on entry that touches
+// this item, each separately editable — never merges them into one number.
+function showAddonDetailEditor(order, itemId, weekAddons){
+  const item=ITEM_BY_ID[itemId];
+  const itemAddons=weekAddons.filter(a=>Number((a.items||{})[itemId]||0)>0);
+  closeModal();
+  const el=document.createElement('div');
+  el.className='Overlay'; el.id='modal';
+  el.innerHTML = `<div class="Modal" style="max-width:420px;">
+    <div class="Modal-title">${item.name} — Add-Ons</div>
+    <div class="Modal-body">Each add-on request is separate. Edit any of them, or add a brand new one below.</div>
+    <div style="max-height:280px;overflow-y:auto;margin-bottom:14px;">
+      ${itemAddons.map(a=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #EEE;">
+          <div style="flex:1;font-size:13px;color:#444;">${a.requested_by||'Unnamed'}<div style="font-size:10px;color:#999;">${new Date(a.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div></div>
+          <input class="SI" type="number" min="0" step="any" inputmode="decimal" data-addon-row="${a.id}" value="${Number((a.items||{})[itemId]||0)}" style="width:60px;height:38px;">
+        </div>`).join('') || '<div style="font-size:13px;color:#999;padding:8px 0;">No existing add-ons for this item.</div>'}
+    </div>
+    <div class="Modal-field">
+      <label>New add-on (leave blank if none)</label>
+      <input id="newAddonQty" type="number" min="0" step="any" inputmode="decimal" placeholder="Quantity">
+    </div>
+    <div class="Modal-field">
+      <label>Your name</label>
+      <input id="addonEditorName" placeholder="Your name">
+    </div>
+    <div class="Modal-actions">
+      <button class="B B-outline" id="addonDetailCancel">Cancel</button>
+      <button class="B B-red" id="addonDetailSave">Save</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  document.getElementById('addonDetailCancel').onclick=closeModal;
+  document.getElementById('addonDetailSave').onclick=async ()=>{
+    const name=document.getElementById('addonEditorName').value.trim()||'Unnamed';
+    showLoading();
+    const changes=[];
+    for(const a of itemAddons){
+      const inp=document.querySelector(`[data-addon-row="${a.id}"]`);
+      const newVal=Number(inp.value.trim()||0);
+      const oldVal=Number((a.items||{})[itemId]||0);
+      if(newVal!==oldVal){
+        await saveSnapshot('darien_addons', a.id, a.items||{}, (a.week_label||'')+' — before edit');
+        const newItems={...a.items, [itemId]:String(newVal)};
+        const delivered=a.delivered||{};
+        const allDone=Object.keys(newItems).every(k=>Number(delivered[k]||0)>=Number(newItems[k]||0));
+        await sb.from('darien_addons').update({items:newItems, status:allDone?'fulfilled':'open'}).eq('id',a.id);
+        changes.push(`${a.requested_by||'Unnamed'}'s add-on: ${oldVal}→${newVal}`);
+      }
+    }
+    const newQty=document.getElementById('newAddonQty').value.trim();
+    if(newQty!=='' && Number(newQty)>0){
+      await sb.from('darien_addons').insert({week_label:order.week_label, requested_by:name, items:{[itemId]:newQty}, delivered:{}, status:'open'});
+      changes.push(`New add-on by ${name}: ${newQty}`);
+    }
+    if(changes.length){
+      await logActivity(order.id, order.week_label, 'addon_edited', `${item.name} add-ons edited by ${name}: ${changes.join('; ')}`, name);
+    }
+    closeModal();
+    showDarienOrderStatus(true);
+  };
 }
 
 // ─── DARIEN'S ORDER VERIFICATION (Is it correct? Yes / No + missing items) ──
