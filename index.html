@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '20.0';
+const APP_VERSION = '20.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -852,7 +852,7 @@ async function showDashboard(lk){
       }).join('') : ''}
       <button class="B B-outline" id="bPrintCenter" style="width:100%;justify-content:center;margin-bottom:12px;">🖨 Print</button>
       ${lk==='darien' && !testMode ? '<button class="B B-red" id="bDailyOnHand" style="width:100%;justify-content:center;margin-bottom:12px;">🔄 Update Today\'s On-Hand (20 sec)</button>' : ''}
-      <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;">
+      <div id="weekTabsScroll" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;">
         ${weekTabs.map(w=>`<button class="B ${w===selectedWeek?'B-red':'B-outline'}" data-week="${w}" style="flex-shrink:0;">Week ${w}</button>`).join('')}
       </div>
       <div style="font-size:12px;color:#777;font-weight:600;margin-bottom:14px;">${weekRangeLabel(selectedWeek)}${selectedWeek===curWeek?' · current week':''}</div>
@@ -888,6 +888,8 @@ async function showDashboard(lk){
   document.querySelectorAll('[data-week]').forEach(btn=>{
     btn.onclick=()=>{ selectedWeek=Number(btn.dataset.week); showDashboard(lk); };
   });
+  const selectedTabBtn=document.querySelector(`[data-week="${selectedWeek}"]`);
+  if(selectedTabBtn) selectedTabBtn.scrollIntoView({inline:'end', block:'nearest'});
   document.getElementById('bPrintCenter').onclick=()=>showPrintPicker(lk);
   if(document.getElementById('bDailyOnHand')) document.getElementById('bDailyOnHand').onclick=()=>showDailyOnHand();
   if(document.getElementById('bViewDailyOnHand')) document.getElementById('bViewDailyOnHand').onclick=()=>showDailyOnHandView();
