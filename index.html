@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '21.5';
+const APP_VERSION = '21.6';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1183,7 +1183,7 @@ async function showDailyOnHand(){
     </div>`;
 
   document.getElementById('bOnHandCancel').onclick=document.getElementById('bOnHandCancel2').onclick=()=>showDashboard('darien');
-  document.getElementById('bOnHandHistory').onclick=()=>showHistory('darien_daily_onhand', today, 'counts', ()=>showDailyOnHand());
+  document.getElementById('bOnHandHistory').onclick=()=>showDailyOnHandHistory();
   document.getElementById('bOnHandSave').onclick=async ()=>{
     const counts={};
     document.querySelectorAll('[data-onhand-item]').forEach(inp=>{
@@ -1198,6 +1198,66 @@ async function showDailyOnHand(){
 }
 
 // Read-only view for Westmont — the most recent day logged.
+// Real chronological history — every past day's on-hand, tap one to see it in full.
+async function showDailyOnHandHistory(){
+  showLoading();
+  const {data}=await sb.from('darien_daily_onhand').select('*').order('date',{ascending:false}).limit(60);
+  const list=data||[];
+
+  const rows=list.map(rec=>{
+    const itemCount=Object.keys(rec.counts||{}).filter(k=>rec.counts[k]!=='' && rec.counts[k]!=null).length;
+    return `<div class="ProdRow" data-history-day="${rec.date}" style="cursor:pointer;">
+      <div class="ProdRow-info">
+        <div class="ProdRow-name">${new Date(rec.date+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</div>
+        <div class="ProdRow-meta">${itemCount} item${itemCount!==1?'s':''} logged${rec.updated_by?' · '+rec.updated_by:''}</div>
+      </div>
+      <div style="font-size:18px;color:#C8102E;">›</div>
+    </div>`;
+  }).join('') || '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No on-hand history yet.</div>';
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">On-Hand History</div>
+      <div class="H-right"><button class="B B-ghost" id="bOnHandHistBack">← Back</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="font-size:12px;color:#777;margin-bottom:12px;">Tap any day to see exactly what was logged.</div>
+      <div class="LocBlock">${rows}</div>
+    </div>`;
+
+  document.getElementById('bOnHandHistBack').onclick=()=>showDailyOnHand();
+  list.forEach(rec=>{
+    const el=document.querySelector(`[data-history-day="${rec.date}"]`);
+    if(el) el.onclick=()=>showDailyOnHandDayDetail(rec);
+  });
+}
+
+function showDailyOnHandDayDetail(rec){
+  const rows=ALL_ITEMS.map(item=>{
+    const val=rec.counts?.[item.id];
+    if(val==null || val==='') return '';
+    return `<div class="ProdRow">
+      <div class="ProdRow-info">
+        <div class="ProdRow-name">${item.name}</div>
+        <div class="ProdRow-meta">${item.unit}</div>
+      </div>
+      <div style="font-size:15px;font-weight:800;color:#1B6B3A;">${val}</div>
+    </div>`;
+  }).join('');
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">${new Date(rec.date+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}</div>
+      <div class="H-right"><button class="B B-ghost" id="bDayDetailBack">← History</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="font-size:12px;color:#777;margin-bottom:12px;">${rec.updated_by?'Updated by '+rec.updated_by:''}</div>
+      <div class="LocBlock">${rows}</div>
+    </div>`;
+
+  document.getElementById('bDayDetailBack').onclick=()=>showDailyOnHandHistory();
+}
+
 async function showDailyOnHandView(){
   showLoading();
   const record=await getLatestDailyOnHand();
