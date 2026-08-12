@@ -80,7 +80,7 @@
     .SI-readonly{width:54px;height:40px;border:2px dashed #1B6B3A;border-radius:6px;background:#F0F7F2;color:#1B6B3A;font-family:'Inter',system-ui,sans-serif;font-size:15px;font-weight:700;display:flex;align-items:center;justify-content:center;}
 
     /* FOOTER */
-    .Footer{position:fixed;bottom:0;left:0;right:0;height:60px;background:#C8102E;border-top:4px solid #1B6B3A;display:flex;align-items:center;justify-content:space-between;padding:0 16px;z-index:150;}
+    .Footer{position:fixed;bottom:0;left:0;right:0;min-height:60px;background:#C8102E;border-top:4px solid #1B6B3A;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;row-gap:6px;padding:8px 12px;z-index:150;}
     .Footer-prog{font-size:12px;font-weight:700;color:rgba(255,255,255,0.9);text-align:center;flex:1;padding:0 8px;}
     .Fbtn{height:38px;padding:0 16px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer;border:2px solid rgba(255,255,255,0.5);background:transparent;color:#fff;white-space:nowrap;-webkit-tap-highlight-color:transparent;font-family:'Inter',system-ui,sans-serif;}
     .Fbtn:active{background:rgba(255,255,255,0.15);}
@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '20.1';
+const APP_VERSION = '20.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -2365,7 +2365,11 @@ function queueSave(){
 async function saveCounts(){
   if(!session) return;
   if(testMode) return; // test mode never touches Supabase
-  if(session._originalCounts !== undefined) return; // editing a completed row - don't touch DB until Complete is tapped again
+  // Edits now save live too, same as a brand-new count. The pre-edit version
+  // is already safely snapshotted to history the moment Edit was tapped, so
+  // there's no risk of losing the original — but there IS a risk of losing
+  // everything typed if we wait for Complete and the session never finishes.
+  // Saving live is the safer choice now that History exists as the backstop.
   await sb.from(TABLE).update({counts:session.counts}).eq('id',session.id);
 }
 
