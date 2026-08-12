@@ -37,6 +37,12 @@
     .LCard-sub{font-size:11px;font-weight:600;font-style:italic;color:#C8102E;}
     .LCard-status{font-size:10px;font-weight:700;color:#1B6B3A;margin-top:2px;}
     .LCard-status.active{color:#C8102E;}
+    .MenuTile{background:#fff;border:2px solid #1B6B3A;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.07);cursor:pointer;display:flex;align-items:center;gap:16px;padding:20px;transition:border-color 0.15s,box-shadow 0.15s,transform 0.15s;user-select:none;-webkit-tap-highlight-color:transparent;}
+    .MenuTile:active{transform:translateY(1px);}
+    .MenuTile.primary{border-color:#C8102E;background:#FFF8F8;}
+    .MenuTile-emoji{font-size:30px;flex-shrink:0;width:40px;text-align:center;}
+    .MenuTile-title{font-family:'Libre Baskerville',Georgia,serif;font-size:18px;font-weight:700;color:#111;}
+    .MenuTile-sub{font-size:11px;font-weight:600;font-style:italic;color:#C8102E;margin-top:2px;}
 
     /* PAGE */
     .Page{padding:12px 16px 100px;}
@@ -119,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '19.1';
+const APP_VERSION = '19.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -470,9 +476,18 @@ function showWestmontMenu(){
       <div class="H-right"><button class="B B-ghost" id="bMenuHome">🏠 Home</button></div>
     </header>
     <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
-      <button class="B B-red" id="bMenuActiveOrder" style="width:100%;justify-content:center;height:64px;font-size:16px;">📋 Active Order</button>
-      <button class="B B-outline" id="bMenuPastOrders" style="width:100%;justify-content:center;height:64px;font-size:16px;">📜 Past Orders</button>
-      <button class="B B-outline" id="bMenuCounts" style="width:100%;justify-content:center;height:64px;font-size:16px;">🔢 Counts</button>
+      <div class="MenuTile primary" id="bMenuActiveOrder">
+        <div class="MenuTile-emoji">📋</div>
+        <div><div class="MenuTile-title">Active Order</div><div class="MenuTile-sub">This week's Darien order</div></div>
+      </div>
+      <div class="MenuTile" id="bMenuPastOrders">
+        <div class="MenuTile-emoji">📜</div>
+        <div><div class="MenuTile-title">Past Orders</div><div class="MenuTile-sub">Averages and order history</div></div>
+      </div>
+      <div class="MenuTile" id="bMenuCounts">
+        <div class="MenuTile-emoji">🔢</div>
+        <div><div class="MenuTile-title">Counts</div><div class="MenuTile-sub">Westmont's own production counts</div></div>
+      </div>
     </div>`;
 
   document.getElementById('bMenuHome').onclick=()=>showHome();
@@ -494,8 +509,14 @@ function showPastOrdersMenu(){
       <div class="H-right"><button class="B B-ghost" id="bPastBack">← Westmont</button></div>
     </header>
     <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
-      <button class="B B-red" id="bPastAverages" style="width:100%;justify-content:center;height:64px;font-size:16px;">📊 Averages</button>
-      <button class="B B-outline" id="bPastActual" style="width:100%;justify-content:center;height:64px;font-size:16px;">📁 Actual Orders</button>
+      <div class="MenuTile primary" id="bPastAverages">
+        <div class="MenuTile-emoji">📊</div>
+        <div><div class="MenuTile-title">Averages</div><div class="MenuTile-sub">6-week average per item</div></div>
+      </div>
+      <div class="MenuTile" id="bPastActual">
+        <div class="MenuTile-emoji">📁</div>
+        <div><div class="MenuTile-title">Actual Orders</div><div class="MenuTile-sub">Browse each past week</div></div>
+      </div>
     </div>`;
 
   document.getElementById('bPastBack').onclick=()=>showWestmontMenu();
@@ -512,10 +533,22 @@ function showDarienMenu(){
       <div class="H-right"><button class="B B-ghost" id="bMenuHome">🏠 Home</button></div>
     </header>
     <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
-      <button class="B B-red" id="bMenuPlaceOrder" style="width:100%;justify-content:center;height:64px;font-size:16px;">📝 Place Order</button>
-      <button class="B B-outline" id="bMenuEditAddOn" style="width:100%;justify-content:center;height:64px;font-size:16px;">✏️ Edit Order / Add-On</button>
-      <button class="B B-outline" id="bMenuOrderStatus" style="width:100%;justify-content:center;height:64px;font-size:16px;">📊 Order Status</button>
-      <button class="B B-outline" id="bMenuOnHand" style="width:100%;justify-content:center;height:64px;font-size:16px;">🔄 Daily On-Hand</button>
+      <div class="MenuTile primary" id="bMenuPlaceOrder">
+        <div class="MenuTile-emoji">📝</div>
+        <div><div class="MenuTile-title">Place Order</div><div class="MenuTile-sub">Enter this week's order</div></div>
+      </div>
+      <div class="MenuTile" id="bMenuEditAddOn">
+        <div class="MenuTile-emoji">✏️</div>
+        <div><div class="MenuTile-title">Edit Order / Add-On</div><div class="MenuTile-sub">Fix an order or request something extra</div></div>
+      </div>
+      <div class="MenuTile" id="bMenuOrderStatus">
+        <div class="MenuTile-emoji">📊</div>
+        <div><div class="MenuTile-title">Order Status</div><div class="MenuTile-sub">See what's ordered and picked up</div></div>
+      </div>
+      <div class="MenuTile" id="bMenuOnHand">
+        <div class="MenuTile-emoji">🔄</div>
+        <div><div class="MenuTile-title">Daily On-Hand</div><div class="MenuTile-sub">Quick update, takes 20 seconds</div></div>
+      </div>
     </div>`;
 
   document.getElementById('bMenuHome').onclick=()=>showHome();
