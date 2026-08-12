@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '19.2';
+const APP_VERSION = '20.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -476,53 +476,114 @@ function showWestmontMenu(){
       <div class="H-right"><button class="B B-ghost" id="bMenuHome">🏠 Home</button></div>
     </header>
     <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
-      <div class="MenuTile primary" id="bMenuActiveOrder">
-        <div class="MenuTile-emoji">📋</div>
-        <div><div class="MenuTile-title">Active Order</div><div class="MenuTile-sub">This week's Darien order</div></div>
-      </div>
-      <div class="MenuTile" id="bMenuPastOrders">
-        <div class="MenuTile-emoji">📜</div>
-        <div><div class="MenuTile-title">Past Orders</div><div class="MenuTile-sub">Averages and order history</div></div>
-      </div>
-      <div class="MenuTile" id="bMenuCounts">
+      <div class="MenuTile primary" id="bMenuCounts">
         <div class="MenuTile-emoji">🔢</div>
-        <div><div class="MenuTile-title">Counts</div><div class="MenuTile-sub">Westmont's own production counts</div></div>
+        <div><div class="MenuTile-title">Counts</div><div class="MenuTile-sub">Westmont's production + Darien's on-hand</div></div>
+      </div>
+      <div class="MenuTile" id="bMenuOrders">
+        <div class="MenuTile-emoji">📦</div>
+        <div><div class="MenuTile-title">Orders</div><div class="MenuTile-sub">Active order and order history</div></div>
       </div>
     </div>`;
 
   document.getElementById('bMenuHome').onclick=()=>showHome();
-  document.getElementById('bMenuActiveOrder').onclick=()=>showActiveOrder();
-  document.getElementById('bMenuPastOrders').onclick=()=>showPastOrdersMenu();
-  document.getElementById('bMenuCounts').onclick=()=>showDashboard('westmont');
+  document.getElementById('bMenuCounts').onclick=()=>showCountsMenu();
+  document.getElementById('bMenuOrders').onclick=()=>showOrdersMenu();
 }
 
-// This week's Darien order + any add-ons tied to it — nothing more, nothing historical.
-async function showActiveOrder(){
-  await showDeliveries();
-}
-
-// ─── PAST ORDERS MENU (Averages / Actual Orders) ────────────────────────────
-function showPastOrdersMenu(){
+// ─── COUNTS SUB-MENU (Westmont / Darien) ────────────────────────────────────
+function showCountsMenu(){
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">W</div>
-      <div class="H-right"><button class="B B-ghost" id="bPastBack">← Westmont</button></div>
+      <div class="H-right"><button class="B B-ghost" id="bCountsBack">← Westmont</button></div>
     </header>
     <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
-      <div class="MenuTile primary" id="bPastAverages">
-        <div class="MenuTile-emoji">📊</div>
-        <div><div class="MenuTile-title">Averages</div><div class="MenuTile-sub">6-week average per item</div></div>
+      <div class="MenuTile primary" id="bCountsWestmont">
+        <div class="MenuTile-emoji">🍳</div>
+        <div><div class="MenuTile-title">Westmont</div><div class="MenuTile-sub">Input production counts</div></div>
       </div>
-      <div class="MenuTile" id="bPastActual">
-        <div class="MenuTile-emoji">📁</div>
-        <div><div class="MenuTile-title">Actual Orders</div><div class="MenuTile-sub">Browse each past week</div></div>
+      <div class="MenuTile" id="bCountsDarien">
+        <div class="MenuTile-emoji">📦</div>
+        <div><div class="MenuTile-title">Darien</div><div class="MenuTile-sub">View their on-hand (read-only)</div></div>
       </div>
     </div>`;
 
-  document.getElementById('bPastBack').onclick=()=>showWestmontMenu();
-  document.getElementById('bPastAverages').onclick=()=>{ activeLoc='darien'; showAverages(); };
-  document.getElementById('bPastActual').onclick=()=>showDarienOrders();
+  document.getElementById('bCountsBack').onclick=()=>showWestmontMenu();
+  document.getElementById('bCountsWestmont').onclick=()=>showDashboard('westmont');
+  document.getElementById('bCountsDarien').onclick=()=>showDarienCountsView();
 }
+
+// Read-only: Item | Par | last 3 days' on-hand | Average — from the Daily
+// On-Hand table, not the weekly order.
+async function showDarienCountsView(){
+  showLoading();
+  const darienPars=await loadPars('darien');
+  const {data:recentDays}=await sb.from('darien_daily_onhand').select('*').order('date',{ascending:false}).limit(3);
+  const days=(recentDays||[]).sort((a,b)=>new Date(b.date)-new Date(a.date));
+
+  const headerCells=days.map(d=>`<th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">${new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</th>`).join('');
+  const rows = ALL_ITEMS.map(item=>{
+    const par=darienPars[item.id];
+    const vals=days.map(d=>Number(d.counts?.[item.id]??null));
+    const validVals=vals.filter(v=>!isNaN(v) && v!==null);
+    if(par==null && validVals.length===0) return '';
+    const avg = validVals.length ? (validVals.reduce((a,b)=>a+b,0)/validVals.length).toFixed(1) : '—';
+    const cells=days.map((d,i)=>`<td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:600;">${isNaN(vals[i])?'—':vals[i]}</td>`).join('');
+    return `<tr>
+      <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:center;color:#999;">${par!=null?par:'—'}</td>
+      ${cells}
+      <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#C8102E;">${avg}</td>
+    </tr>`;
+  }).join('');
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Darien Counts</div>
+      <div class="H-right"><button class="B B-ghost" id="bDarienCountsBack">← Counts</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div class="LocBlock" style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:#F7F7F7;">
+            <th style="padding:8px 10px;font-size:9px;color:#999;text-transform:uppercase;text-align:left;">Item</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Par</th>
+            ${headerCells}
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Avg</th>
+          </tr></thead>
+          <tbody>${rows || `<tr><td colspan="${3+days.length}" style="padding:20px;text-align:center;color:#999;font-size:13px;">No daily on-hand data yet.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  document.getElementById('bDarienCountsBack').onclick=()=>showCountsMenu();
+}
+
+// ─── ORDERS SUB-MENU (Active Orders / Past Orders) ──────────────────────────
+function showOrdersMenu(){
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">W</div>
+      <div class="H-right"><button class="B B-ghost" id="bOrdersBack">← Westmont</button></div>
+    </header>
+    <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
+      <div class="MenuTile primary" id="bOrdersActive">
+        <div class="MenuTile-emoji">📋</div>
+        <div><div class="MenuTile-title">Active Orders</div><div class="MenuTile-sub">This week's order + add-ons</div></div>
+      </div>
+      <div class="MenuTile" id="bOrdersPast">
+        <div class="MenuTile-emoji">📅</div>
+        <div><div class="MenuTile-title">Past Orders</div><div class="MenuTile-sub">Calendar and historical data</div></div>
+      </div>
+    </div>`;
+
+  document.getElementById('bOrdersBack').onclick=()=>showWestmontMenu();
+  document.getElementById('bOrdersActive').onclick=()=>showActiveOrdersTable();
+  document.getElementById('bOrdersPast').onclick=()=>showPastOrdersCalendar();
+}
+
+
 
 // ─── DARIEN'S SIMPLE MENU (Place Order / Edit-Add-On / Daily On-Hand) ───────
 function showDarienMenu(){
@@ -878,12 +939,12 @@ async function showDarienOrders(){
     <header class="H no-print">
       <div class="H-logo">Darien Orders</div>
       <div class="H-right">
-        <button class="B B-ghost" id="bBackDash">← Past Orders</button>
+        <button class="B B-ghost" id="bBackDash">← Westmont</button>
       </div>
     </header>
     <div class="Page" style="padding-top:12px;">${rows}</div>`;
 
-  document.getElementById('bBackDash').onclick=()=>showPastOrdersMenu();
+  document.getElementById('bBackDash').onclick=()=>showWestmontMenu();
   orders.forEach(o=>{
     const viewBtn=document.querySelector(`[data-view="${o.id}"]`);
     if(viewBtn) viewBtn.onclick=()=>showOrderDetail(o);
@@ -1229,9 +1290,100 @@ async function showDarienOrderStatus(){
           <tbody>${rows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#999;font-size:13px;">Nothing ordered yet this week.</td></tr>'}</tbody>
         </table>` : '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No order has been placed yet this week.</div>'}
       </div>
+      ${order ? '<button class="B B-red" id="bVerifyOrder" style="width:100%;justify-content:center;height:48px;margin-top:16px;">✅ Verify Order</button>' : ''}
     </div>`;
 
   document.getElementById('bStatusBack').onclick=()=>showDarienMenu();
+  if(document.getElementById('bVerifyOrder')) document.getElementById('bVerifyOrder').onclick=()=>showVerifyOrder(order);
+}
+
+// ─── DARIEN'S ORDER VERIFICATION (Is it correct? Yes / No + missing items) ──
+function showVerifyOrder(order){
+  showModal('Is the order correct?', 'Confirm everything ordered was actually received in the correct quantities.', [
+    {l:'No, something\'s missing',c:'B-outline',fn:()=>showMissingItemsPicker(order)},
+    {l:'Yes, it\'s correct',c:'B-red',fn:()=>showVerifyCertify(order)},
+  ]);
+}
+
+function showVerifyCertify(order){
+  closeModal();
+  const el=document.createElement('div');
+  el.className='Overlay'; el.id='modal';
+  el.innerHTML = `<div class="Modal">
+    <div class="Modal-title">Verify this order</div>
+    <div class="Modal-body">I checked and received the order from Westmont. The quantities are correct as stated above.</div>
+    <div class="Modal-field">
+      <label>Your name</label>
+      <input id="verifyName" placeholder="Your name">
+    </div>
+    <div style="display:flex;align-items:flex-start;gap:10px;margin:6px 0 18px;">
+      <input type="checkbox" id="verifyCheck" style="width:22px;height:22px;margin-top:2px;flex-shrink:0;accent-color:#1B6B3A;">
+      <label for="verifyCheck" style="font-size:13px;color:#444;line-height:1.45;">I certify the quantities received are correct as stated above.</label>
+    </div>
+    <div class="Modal-actions">
+      <button class="B B-outline" id="verifyCancel">Cancel</button>
+      <button class="B B-red" id="verifyOk" disabled style="opacity:0.35;">OK</button>
+    </div>
+  </div>`;
+  document.body.appendChild(el);
+  const checkbox=document.getElementById('verifyCheck');
+  const okBtn=document.getElementById('verifyOk');
+  checkbox.onchange=()=>{ okBtn.disabled=!checkbox.checked; okBtn.style.opacity=checkbox.checked?'1':'0.35'; };
+  document.getElementById('verifyCancel').onclick=closeModal;
+  okBtn.onclick=async ()=>{
+    if(!checkbox.checked) return;
+    const name=document.getElementById('verifyName').value.trim()||'Unnamed';
+    closeModal();
+    showLoading();
+    await sb.from('darien_verifications').insert({order_id:order.id, week_label:order.week_label, is_correct:true, missing_items:{}, verified_by:name});
+    showDarienOrderStatus();
+  };
+}
+
+function showMissingItemsPicker(order){
+  closeModal();
+  const items=ALL_ITEMS.filter(item=>Number(order.counts?.[item.id]||0)>0);
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">What's Missing?</div>
+      <div class="H-right"><button class="B B-ghost" id="bMissingCancel">← Cancel</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="font-size:12px;color:#777;margin-bottom:14px;">Enter how much is missing for any item that came up short — leave the rest blank.</div>
+      <div class="LocBlock">
+        ${items.map(item=>`
+          <div class="ProdRow">
+            <div class="ProdRow-info">
+              <div class="ProdRow-name">${item.name}</div>
+              <div class="ProdRow-meta">${item.unit} · Ordered ${order.counts[item.id]}</div>
+            </div>
+            <input class="SI" type="number" min="0" step="any" inputmode="decimal" data-missing-item="${item.id}" placeholder="0">
+          </div>`).join('')}
+      </div>
+      <div class="Modal-field" style="margin-top:16px;">
+        <label>Your name</label>
+        <input id="missingName" placeholder="Your name">
+      </div>
+    </div>
+    <div class="Footer no-print">
+      <button class="Fbtn" id="bMissingCancel2">Cancel</button>
+      <div class="Footer-prog">Report what's short</div>
+      <button class="Fbtn Fbtn-next" id="bMissingSubmit">Submit</button>
+    </div>`;
+
+  document.getElementById('bMissingCancel').onclick=document.getElementById('bMissingCancel2').onclick=()=>showDarienOrderStatus();
+  document.getElementById('bMissingSubmit').onclick=async ()=>{
+    const missing={};
+    document.querySelectorAll('[data-missing-item]').forEach(inp=>{
+      const v=inp.value.trim();
+      if(v!=='' && Number(v)>0) missing[inp.dataset.missingItem]=v;
+    });
+    if(Object.keys(missing).length===0){ alert('Enter at least one missing quantity.'); return; }
+    const name=document.getElementById('missingName').value.trim()||'Unnamed';
+    showLoading();
+    await sb.from('darien_verifications').insert({order_id:order.id, week_label:order.week_label, is_correct:false, missing_items:missing, verified_by:name});
+    showDarienOrderStatus();
+  };
 }
 
 async function showDarienTracker(){
@@ -1294,6 +1446,257 @@ async function showDarienTracker(){
 
   document.getElementById('bBackDarienDash').onclick=()=>showDashboard('darien');
   document.getElementById('bDarienTrackerPrint').onclick=()=>printTrackerSheet('DARIEN TRACKER', mainOrder?mainOrder.week_label:'', printItems);
+}
+
+// ─── ACTIVE ORDERS (table format: Item/Par/Sunday/Add-Ons/Total/✓) ──────────
+async function showActiveOrdersTable(){
+  showLoading();
+  const darienPars=await loadPars('darien');
+  const {data:latestD}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
+  const mainOrder=(latestD && latestD.length)?latestD[0]:null;
+
+  let weekAddons=[], latestVerification=null;
+  if(mainOrder){
+    const {data:wa}=await sb.from('darien_addons').select('*').eq('week_label',mainOrder.week_label);
+    weekAddons=wa||[];
+    const {data:verifs}=await sb.from('darien_verifications').select('*').eq('order_id',mainOrder.id).order('verified_at',{ascending:false}).limit(1);
+    if(verifs && verifs.length) latestVerification=verifs[0];
+  }
+
+  let bodyRows='', pickedUpRows='', sunTotal=0, addonTotal=0, grandTotal=0;
+  if(mainOrder){
+    const delivered=mainOrder.delivered||{};
+    ALL_ITEMS.forEach(item=>{
+      const par=darienPars[item.id];
+      const sunOrder=Number(mainOrder.counts?.[item.id]||0);
+      let addonQty=0, addonDelivered=0;
+      weekAddons.forEach(a=>{
+        addonQty+=Number((a.items||{})[item.id]||0);
+        addonDelivered+=Number((a.delivered||{})[item.id]||0);
+      });
+      const total=sunOrder+addonQty;
+      if(total<=0) return;
+      sunTotal+=sunOrder; addonTotal+=addonQty; grandTotal+=total;
+      const mainDelivered=Number(delivered[item.id]||0);
+      const pickedUp=mainDelivered+addonDelivered;
+      const done=pickedUp>=total;
+      if(done){
+        if(mainDelivered>0) pickedUpRows+=`<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div><div class="ProdRow-meta">Sunday's Order</div></div><div style="font-weight:700;color:#1B6B3A;">✅ ${mainDelivered}</div></div>`;
+        weekAddons.forEach(a=>{
+          const q=Number((a.delivered||{})[item.id]||0);
+          if(q>0) pickedUpRows+=`<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div><div class="ProdRow-meta">Add-On · ${a.requested_by||'Unnamed'}</div></div><div style="font-weight:700;color:#1B6B3A;">✅ ${q}</div></div>`;
+        });
+      } else {
+        bodyRows+=`<tr>
+          <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;color:#999;">${par!=null?par:'—'}</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">${sunOrder||'—'}</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
+          <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">${total}</td>
+          <td style="padding:8px 6px;text-align:center;"><button class="B B-outline" data-mark-picked="${item.id}" style="height:32px;padding:0 8px;font-size:14px;">⬜</button></td>
+        </tr>`;
+      }
+    });
+  }
+
+  const discrepancyBanner = (latestVerification && !latestVerification.is_correct)
+    ? `<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:12px;">
+        🚨 Darien reported missing items on ${new Date(latestVerification.verified_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}:
+        ${Object.keys(latestVerification.missing_items||{}).map(k=>{
+          const item=ITEM_BY_ID[k]; return item ? `${item.name} (${latestVerification.missing_items[k]} short)` : '';
+        }).filter(Boolean).join(', ')}
+      </div>`
+    : (latestVerification && latestVerification.is_correct)
+      ? `<div style="background:#E8F5ED;color:#1B6B3A;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:12px;">✅ Darien verified this order as correct on ${new Date(latestVerification.verified_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}${latestVerification.verified_by?' by '+latestVerification.verified_by:''}</div>`
+      : '';
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Active Orders</div>
+      <div class="H-right"><button class="B B-ghost" id="bActiveBack">← Orders</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      ${mainOrder ? `<div style="font-size:12px;color:#777;margin-bottom:10px;">${mainOrder.week_label}</div>` : ''}
+      ${discrepancyBanner}
+      <div class="LocBlock" style="overflow-x:auto;margin-bottom:20px;">
+        ${mainOrder ? `<table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:#F7F7F7;">
+            <th style="padding:8px 10px;font-size:9px;color:#999;text-transform:uppercase;text-align:left;">Item</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Par</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Sunday</th>
+            <th style="padding:8px 6px;font-size:9px;color:#1B6B3A;text-transform:uppercase;">Add-Ons</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Total</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">✓</th>
+          </tr></thead>
+          <tbody>${bodyRows || '<tr><td colspan="6" style="padding:20px;text-align:center;color:#999;font-size:13px;">Nothing outstanding.</td></tr>'}</tbody>
+          <tfoot><tr style="background:#F7F7F7;border-top:2px solid #DDD;">
+            <td style="padding:8px 10px;font-size:11px;font-weight:700;">TOTAL</td>
+            <td></td>
+            <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:800;">${sunTotal}</td>
+            <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:800;color:#1B6B3A;">${addonTotal}</td>
+            <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">${grandTotal}</td>
+            <td></td>
+          </tr></tfoot>
+        </table>` : '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No order placed yet this week.</div>'}
+      </div>
+      ${pickedUpRows ? `<div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;">✅ Picked Up</div><div class="LocBlock">${pickedUpRows}</div>` : ''}
+    </div>`;
+
+  document.getElementById('bActiveBack').onclick=()=>showOrdersMenu();
+  if(mainOrder){
+    document.querySelectorAll('[data-mark-picked]').forEach(btn=>{
+      btn.onclick=async ()=>{
+        const itemId=btn.dataset.markPicked;
+        const sunOrder=Number(mainOrder.counts?.[itemId]||0);
+        showModal('Mark picked up?','Confirm the full amount ('+sunOrder+' from Sunday\'s order'+(weekAddons.some(a=>Number((a.items||{})[itemId]||0)>0)?' plus any add-on':'')+') has been picked up.',[
+          {l:'Cancel',c:'B-outline',fn:closeModal},
+          {l:'Confirm',c:'B-red',fn:async ()=>{
+            closeModal();
+            showLoading();
+            const {data:row}=await sb.from(TABLE).select('delivered').eq('id',mainOrder.id).single();
+            const delivered={...(row?.delivered||{})};
+            delivered[itemId]=sunOrder;
+            await sb.from(TABLE).update({delivered}).eq('id',mainOrder.id);
+            for(const a of weekAddons){
+              const q=Number((a.items||{})[itemId]||0);
+              if(q>0){
+                const {data:arow}=await sb.from('darien_addons').select('items,delivered').eq('id',a.id).single();
+                const adel={...(arow?.delivered||{})};
+                adel[itemId]=q;
+                const allDone=Object.keys(arow?.items||{}).every(k=>Number(adel[k]||0)>=Number(arow.items[k]||0));
+                await sb.from('darien_addons').update({delivered:adel, status:allDone?'fulfilled':'open'}).eq('id',a.id);
+              }
+            }
+            showActiveOrdersTable();
+          }},
+        ]);
+      };
+    });
+  }
+}
+
+// ─── PAST ORDERS CALENDAR ────────────────────────────────────────────────────
+let calendarMonthOffset=0;
+async function showPastOrdersCalendar(){
+  showLoading();
+  const {data:allOrders}=await sb.from(TABLE).select('id,week_label,status,completed_at').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(60);
+  const orders=allOrders||[];
+  const orderDates={};
+  orders.forEach(o=>{
+    if(!o.completed_at) return;
+    const d=new Date(o.completed_at);
+    const key=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if(!orderDates[key]) orderDates[key]=o;
+  });
+
+  const now=new Date();
+  const viewMonth=new Date(now.getFullYear(), now.getMonth()+calendarMonthOffset, 1);
+  const monthLabel=viewMonth.toLocaleDateString('en-US',{month:'long',year:'numeric'});
+  const firstDay=new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
+  const startOffset=(firstDay.getDay()+6)%7;
+  const daysInMonth=new Date(viewMonth.getFullYear(), viewMonth.getMonth()+1, 0).getDate();
+
+  let cells='';
+  for(let i=0;i<startOffset;i++) cells+='<div></div>';
+  for(let day=1; day<=daysInMonth; day++){
+    const key=viewMonth.getFullYear()+'-'+String(viewMonth.getMonth()+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
+    const hasOrder=!!orderDates[key];
+    cells+=`<div ${hasOrder?`data-cal-day="${key}"`:''} style="aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:8px;font-size:13px;font-weight:${hasOrder?'800':'500'};color:${hasOrder?'#fff':'#333'};background:${hasOrder?'#C8102E':'transparent'};cursor:${hasOrder?'pointer':'default'};">${day}</div>`;
+  }
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Past Orders</div>
+      <div class="H-right"><button class="B B-ghost" id="bCalBack">← Orders</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+        <button class="B B-outline" id="bCalPrev">‹ Prev</button>
+        <div style="font-family:'Libre Baskerville',Georgia,serif;font-size:17px;font-weight:700;">${monthLabel}</div>
+        <button class="B B-outline" id="bCalNext">Next ›</button>
+      </div>
+      <div class="LocBlock" style="padding:14px;margin-bottom:16px;">
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;margin-bottom:8px;">
+          ${['M','T','W','T','F','S','S'].map(d=>`<div style="text-align:center;font-size:10px;font-weight:700;color:#999;">${d}</div>`).join('')}
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px;">${cells}</div>
+      </div>
+      <button class="B B-outline" id="bHistoricalData" style="width:100%;justify-content:center;height:48px;">📊 Historical Data</button>
+    </div>`;
+
+  document.getElementById('bCalBack').onclick=()=>{ calendarMonthOffset=0; showOrdersMenu(); };
+  document.getElementById('bCalPrev').onclick=()=>{ calendarMonthOffset--; showPastOrdersCalendar(); };
+  document.getElementById('bCalNext').onclick=()=>{ calendarMonthOffset++; showPastOrdersCalendar(); };
+  document.getElementById('bHistoricalData').onclick=()=>showHistoricalData();
+  Object.keys(orderDates).forEach(key=>{
+    const el=document.querySelector(`[data-cal-day="${key}"]`);
+    if(el) el.onclick=()=>showOrderDetail(orderDates[key], ()=>showPastOrdersCalendar(), orderDates[key].week_label);
+  });
+}
+
+// ─── HISTORICAL DATA (weekly/monthly averages, all-item totals) ─────────────
+async function showHistoricalData(){
+  showLoading();
+  const {data:allOrders}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(52);
+  const orders=allOrders||[];
+
+  const weeklyAvg={}, monthlyBuckets={};
+  ALL_ITEMS.forEach(item=>{
+    const vals=orders.slice(0,6).map(o=>Number(o.counts?.[item.id]||0));
+    weeklyAvg[item.id]=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;
+  });
+  orders.forEach(o=>{
+    if(!o.completed_at) return;
+    const d=new Date(o.completed_at);
+    const mKey=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    if(!monthlyBuckets[mKey]) monthlyBuckets[mKey]=[];
+    monthlyBuckets[mKey].push(o);
+  });
+  const mostRecentMonthKey=Object.keys(monthlyBuckets).sort().reverse()[0];
+  const monthlyOrders=mostRecentMonthKey?monthlyBuckets[mostRecentMonthKey]:[];
+  const monthlyAvg={};
+  ALL_ITEMS.forEach(item=>{
+    const vals=monthlyOrders.map(o=>Number(o.counts?.[item.id]||0));
+    monthlyAvg[item.id]=vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:0;
+  });
+
+  let grandTotalAllItems=0;
+  const rows=ALL_ITEMS.map(item=>{
+    const wk=weeklyAvg[item.id], mo=monthlyAvg[item.id];
+    if(wk<=0 && mo<=0) return '';
+    grandTotalAllItems+=wk;
+    return `<tr>
+      <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#C8102E;">${wk.toFixed(1)}</td>
+      <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#1B6B3A;">${mo.toFixed(1)}</td>
+    </tr>`;
+  }).join('');
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Historical Data</div>
+      <div class="H-right"><button class="B B-ghost" id="bHistBack">← Past Orders</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="font-size:12px;color:#777;margin-bottom:14px;">Weekly avg = last 6 weeks · Monthly avg = ${mostRecentMonthKey?new Date(mostRecentMonthKey+'-01').toLocaleDateString('en-US',{month:'long',year:'numeric'}):'—'}</div>
+      <div class="LocBlock" style="overflow-x:auto;margin-bottom:16px;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:#F7F7F7;">
+            <th style="padding:8px 10px;font-size:9px;color:#999;text-transform:uppercase;text-align:left;">Item</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Weekly Avg</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Monthly Avg</th>
+          </tr></thead>
+          <tbody>${rows || '<tr><td colspan="3" style="padding:20px;text-align:center;color:#999;font-size:13px;">No order history yet.</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="LocBlock" style="padding:14px 16px;">
+        <div style="font-size:11px;color:#999;text-transform:uppercase;font-weight:700;">Total Of All Items (weekly avg)</div>
+        <div style="font-size:22px;font-weight:800;color:#C8102E;">${grandTotalAllItems.toFixed(1)}</div>
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:14px;text-align:center;">Yearly averages will appear here once a full year of data is logged.</div>
+    </div>`;
+
+  document.getElementById('bHistBack').onclick=()=>showPastOrdersCalendar();
 }
 
 async function showDeliveries(){
