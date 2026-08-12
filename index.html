@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '21.3';
+const APP_VERSION = '21.4';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1326,9 +1326,16 @@ async function showDarienOrderStatus(editMode){
   const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(5);
   const order=(data||[]).find(r=>weekNumberForDate(new Date(r.started_at))===curWeek);
 
+  let latestVerification=null;
+  if(order){
+    const {data:verifs}=await sb.from('darien_verifications').select('*').eq('order_id',order.id).order('verified_at',{ascending:false}).limit(1);
+    if(verifs && verifs.length) latestVerification=verifs[0];
+  }
+
   let rows='', weekAddonsGlobal=[];
   if(order){
     const delivered=order.delivered||{};
+    const deliveredAt=order.delivered_at||{};
     const {data:weekAddons}=await sb.from('darien_addons').select('*').eq('week_label',order.week_label);
     const addons=weekAddons||[];
     weekAddonsGlobal=addons;
@@ -1353,8 +1360,9 @@ async function showDarienOrderStatus(editMode){
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:15px;text-align:center;">${done?'✅':''}</td>
         </tr>`;
       } else {
+        const ts=deliveredAt[item.id]?new Date(deliveredAt[item.id]).toLocaleDateString('en-US',{month:'short',day:'numeric'}):null;
         rows+=`<tr style="${done?'background:#E8F5ED;':''}">
-          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}${ts?`<div style="font-size:9px;color:#1B6B3A;font-weight:600;">Picked up ${ts}</div>`:''}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;">${ordered||'—'}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:800;">${total}</td>
@@ -1372,6 +1380,7 @@ async function showDarienOrderStatus(editMode){
     <div class="Page" style="padding-top:12px;">
       ${order ? `<div style="font-size:12px;color:#777;margin-bottom:12px;">${order.week_label}</div>` : ''}
       ${editMode ? `<div class="Modal-field" style="margin-bottom:12px;"><label>Your name</label><input id="editorName" placeholder="Your name"></div>` : ''}
+      ${order && latestVerification ? `<div style="background:${latestVerification.is_correct?'#E8F5ED':'#FDECEA'};color:${latestVerification.is_correct?'#1B6B3A':'#C8102E'};font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:12px;">${latestVerification.is_correct?'✅ Verified correct':'🚨 Missing items reported'} by ${latestVerification.verified_by||'Unnamed'} on ${new Date(latestVerification.verified_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>` : ''}
       <div class="LocBlock" style="overflow-x:auto;">
         ${order ? `<table style="width:100%;border-collapse:collapse;">
           <thead><tr style="background:#F7F7F7;">
@@ -1386,7 +1395,7 @@ async function showDarienOrderStatus(editMode){
       </div>
       ${order ? (editMode
         ? '<button class="B B-red" id="bSaveEdit" style="width:100%;justify-content:center;height:48px;margin-top:16px;">💾 Save Order Changes</button>'
-        : '<button class="B B-outline" id="bEditOrder" style="width:100%;justify-content:center;height:48px;margin-top:16px;">✏️ Edit / Add-On</button><button class="B B-red" id="bVerifyOrder" style="width:100%;justify-content:center;height:48px;margin-top:10px;">✅ Verify Order</button>'
+        : `<button class="B B-outline" id="bEditOrder" style="width:100%;justify-content:center;height:48px;margin-top:16px;">✏️ Edit / Add-On</button><button class="B ${latestVerification?'B-outline':'B-red'}" id="bVerifyOrder" style="width:100%;justify-content:center;height:48px;margin-top:10px;${latestVerification?'color:#1B6B3A;border-color:#1B6B3A;':''}">${latestVerification?(latestVerification.is_correct?'✅ Verified — Re-check?':'🚨 Missing Reported — Re-check?'):'✅ Verify Order'}</button>`
       ) : ''}
     </div>`;
 
