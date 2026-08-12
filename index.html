@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '21.2';
+const APP_VERSION = '21.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1672,10 +1672,17 @@ async function showActiveOrdersTable(){
       const pickedUp=mainDelivered+addonDelivered;
       const done=pickedUp>=total;
       if(done){
-        if(mainDelivered>0) pickedUpRows+=`<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div><div class="ProdRow-meta">Sunday's Order</div></div><div style="font-weight:700;color:#1B6B3A;">✅ ${mainDelivered}</div></div>`;
+        const fmtTs=ts=>ts?new Date(ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
+        if(mainDelivered>0){
+          const ts=fmtTs((mainOrder.delivered_at||{})[item.id]);
+          pickedUpRows+=`<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div><div class="ProdRow-meta">Sunday's Order${ts?' · Picked up '+ts:''}</div></div><div style="font-weight:700;color:#1B6B3A;">✅ ${mainDelivered}</div></div>`;
+        }
         weekAddons.forEach(a=>{
           const q=Number((a.delivered||{})[item.id]||0);
-          if(q>0) pickedUpRows+=`<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div><div class="ProdRow-meta">Add-On · ${a.requested_by||'Unnamed'}</div></div><div style="font-weight:700;color:#1B6B3A;">✅ ${q}</div></div>`;
+          if(q>0){
+            const ts=fmtTs((a.delivered_at||{})[item.id]);
+            pickedUpRows+=`<div class="ProdRow"><div class="ProdRow-info"><div class="ProdRow-name">${item.name}</div><div class="ProdRow-meta">Add-On · ${a.requested_by||'Unnamed'}${ts?' · Picked up '+ts:''}</div></div><div style="font-weight:700;color:#1B6B3A;">✅ ${q}</div></div>`;
+          }
         });
       } else {
         bodyRows+=`<tr>
@@ -1744,18 +1751,23 @@ async function showActiveOrdersTable(){
           {l:'Confirm',c:'B-red',fn:async ()=>{
             closeModal();
             showLoading();
-            const {data:row}=await sb.from(TABLE).select('delivered').eq('id',mainOrder.id).single();
+            const nowTs=new Date().toISOString();
+            const {data:row}=await sb.from(TABLE).select('delivered,delivered_at').eq('id',mainOrder.id).single();
             const delivered={...(row?.delivered||{})};
+            const deliveredAt={...(row?.delivered_at||{})};
             delivered[itemId]=sunOrder;
-            await sb.from(TABLE).update({delivered}).eq('id',mainOrder.id);
+            deliveredAt[itemId]=nowTs;
+            await sb.from(TABLE).update({delivered, delivered_at:deliveredAt}).eq('id',mainOrder.id);
             for(const a of weekAddons){
               const q=Number((a.items||{})[itemId]||0);
               if(q>0){
-                const {data:arow}=await sb.from('darien_addons').select('items,delivered').eq('id',a.id).single();
+                const {data:arow}=await sb.from('darien_addons').select('items,delivered,delivered_at').eq('id',a.id).single();
                 const adel={...(arow?.delivered||{})};
+                const adelAt={...(arow?.delivered_at||{})};
                 adel[itemId]=q;
+                adelAt[itemId]=nowTs;
                 const allDone=Object.keys(arow?.items||{}).every(k=>Number(adel[k]||0)>=Number(arow.items[k]||0));
-                await sb.from('darien_addons').update({delivered:adel, status:allDone?'fulfilled':'open'}).eq('id',a.id);
+                await sb.from('darien_addons').update({delivered:adel, delivered_at:adelAt, status:allDone?'fulfilled':'open'}).eq('id',a.id);
               }
             }
             const itemName=ITEM_BY_ID[itemId]?.name||itemId;
