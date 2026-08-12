@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '20.3';
+const APP_VERSION = '21.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -252,6 +252,14 @@ async function getOpenAddons(){
 // Darien weekly order — older ones are just history. Used by both the
 // Dashboard and the live Count screen so the numbers always match.
 // ─── EDIT HISTORY (so an edit is never permanently destructive) ─────────────
+// ─── ACTIVITY LOG (one thread per order - every action logged) ─────────────
+async function logActivity(orderId, weekLabel, eventType, description, actorName){
+  if(testMode || !orderId) return;
+  try{
+    await sb.from('order_activity_log').insert({order_id:orderId, week_label:weekLabel, event_type:eventType, description, actor_name:actorName||null});
+  }catch(e){ /* don't block the actual action if logging fails */ }
+}
+
 async function saveSnapshot(tableName, recordId, snapshot, label){
   try{
     await sb.from('prep_edit_history').insert({table_name:tableName, record_id:String(recordId), snapshot, label});
@@ -484,10 +492,15 @@ function showWestmontMenu(){
         <div class="MenuTile-emoji">📦</div>
         <div><div class="MenuTile-title">Orders</div><div class="MenuTile-sub">Active order and order history</div></div>
       </div>
+      <div class="MenuTile" id="bMenuLog">
+        <div class="MenuTile-emoji">📜</div>
+        <div><div class="MenuTile-title">Log</div><div class="MenuTile-sub">Full activity thread per order</div></div>
+      </div>
     </div>`;
 
   document.getElementById('bMenuHome').onclick=()=>showHome();
   document.getElementById('bMenuCounts').onclick=()=>showCountsMenu();
+  document.getElementById('bMenuLog').onclick=()=>showLogMenu();
   document.getElementById('bMenuOrders').onclick=()=>showOrdersMenu();
 }
 
@@ -559,6 +572,80 @@ async function showDarienCountsView(){
 }
 
 // ─── ORDERS SUB-MENU (Active Orders / Past Orders) ──────────────────────────
+// ─── ACTIVITY LOG (one thread per order) ─────────────────────────────────────
+async function showLogMenu(){
+  showLoading();
+  const {data:orders}=await sb.from(TABLE).select('id,week_label,completed_at,started_at').eq('location','darien').order('started_at',{ascending:false}).limit(20);
+  const list=orders||[];
+  const counts={};
+  for(const o of list){
+    const {count}=await sb.from('order_activity_log').select('id',{count:'exact',head:true}).eq('order_id',o.id);
+    counts[o.id]=count||0;
+  }
+
+  const rows=list.map(o=>{
+    const dateStr=new Date(o.completed_at||o.started_at).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    return `<div class="ProdRow" data-log-order="${o.id}" style="cursor:pointer;">
+      <div class="ProdRow-info">
+        <div class="ProdRow-name">${o.week_label}</div>
+        <div class="ProdRow-meta">${dateStr} · ${counts[o.id]} event${counts[o.id]!==1?'s':''}</div>
+      </div>
+      <div style="font-size:18px;color:#C8102E;">›</div>
+    </div>`;
+  }).join('') || '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No orders yet.</div>';
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Log</div>
+      <div class="H-right"><button class="B B-ghost" id="bLogBack">← Westmont</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="font-size:12px;color:#777;margin-bottom:12px;">Tap any week to see its full activity thread.</div>
+      <div class="LocBlock">${rows}</div>
+    </div>`;
+
+  document.getElementById('bLogBack').onclick=()=>showWestmontMenu();
+  list.forEach(o=>{
+    const el=document.querySelector(`[data-log-order="${o.id}"]`);
+    if(el) el.onclick=()=>showOrderLog(o.id, o.week_label);
+  });
+}
+
+const EVENT_ICONS={
+  placed:'📝', edited:'✏️', acknowledged:'👀', addon_submitted:'📬', addon_edited:'✏️',
+  picked_up:'✅', verified_correct:'✅', reported_missing:'🚨',
+};
+
+async function showOrderLog(orderId, weekLabel){
+  showLoading();
+  const {data:events}=await sb.from('order_activity_log').select('*').eq('order_id',orderId).order('created_at',{ascending:true});
+  const list=events||[];
+
+  const rows=list.map(e=>{
+    const icon=EVENT_ICONS[e.event_type]||'•';
+    const dateStr=new Date(e.created_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+    return `<div style="display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid #F0F0F0;">
+      <div style="font-size:20px;flex-shrink:0;">${icon}</div>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:#111;">${e.description}</div>
+        <div style="font-size:11px;color:#999;margin-top:2px;">${dateStr}</div>
+      </div>
+    </div>`;
+  }).join('') || '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No activity logged for this order yet.</div>';
+
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">${weekLabel}</div>
+      <div class="H-right"><button class="B B-ghost" id="bOrderLogBack">← Log</button></div>
+    </header>
+    <div class="Page" style="padding-top:12px;">
+      <div style="font-size:12px;color:#777;font-weight:700;text-transform:uppercase;margin-bottom:8px;">Activity Thread</div>
+      <div class="LocBlock">${rows}</div>
+    </div>`;
+
+  document.getElementById('bOrderLogBack').onclick=()=>showLogMenu();
+}
+
 function showOrdersMenu(){
   app.innerHTML = `
     <header class="H no-print">
@@ -614,19 +701,7 @@ function showDarienMenu(){
   document.getElementById('bMenuPlaceOrder').onclick=()=>goToCounting('darien');
   document.getElementById('bMenuOnHand').onclick=()=>showDailyOnHand();
   document.getElementById('bMenuOrderStatus').onclick=()=>showDarienOrderStatus();
-  document.getElementById('bMenuEditAddOn').onclick=async ()=>{
-    showLoading();
-    const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(1);
-    const curWeek=currentWeekNumber();
-    const thisWeekOrder=(data||[]).find(r=>weekNumberForDate(new Date(r.started_at))===curWeek);
-    showModal('Edit Order or Add-On?', thisWeekOrder
-      ? 'Choose whether you want to fix this week\'s already-entered order, or add something extra on top of it.'
-      : 'No order has been entered yet this week, so there\'s nothing to edit — but you can still submit an add-on if needed.', [
-      {l:'Cancel',c:'B-outline',fn:closeModal},
-      {l:'Add-On',c:'B-outline',fn:()=>{ closeModal(); showAddOnForm(null, ()=>showDarienMenu()); }},
-      ...(thisWeekOrder ? [{l:'Edit Order',c:'B-red',fn:()=>{ closeModal(); editCompletedOrder(thisWeekOrder); }}] : []),
-    ]);
-  };
+  document.getElementById('bMenuEditAddOn').onclick=()=>showDarienOrderStatus(true);
 }
 
 // ─── EDIT A COMPLETED ORDER/COUNT ────────────────────────────────────────────
@@ -953,6 +1028,7 @@ async function showDarienOrders(){
     const ackBtn=document.querySelector(`[data-ack="${o.id}"]`);
     if(ackBtn) ackBtn.onclick=async ()=>{
       await sb.from(TABLE).update({acknowledged:true, acknowledged_at:new Date().toISOString()}).eq('id',o.id);
+      await logActivity(o.id, o.week_label, 'acknowledged', 'Order viewed and acknowledged by Westmont');
       showDarienOrders();
     };
   });
@@ -1202,13 +1278,18 @@ function showAddOnForm(existing, onDone){
     });
     if(Object.keys(items).length===0){ alert('Enter at least one item quantity before submitting.'); return; }
     showLoading();
+    const itemsSummary=Object.keys(items).map(k=>{ const it=ITEM_BY_ID[k]; return it?`${it.name} x${items[k]}`:''; }).filter(Boolean).join(', ');
+    const {data:mainOrderForLog}=await sb.from(TABLE).select('id').eq('location','darien').eq('week_label',weekLbl).limit(1);
+    const logOrderId=mainOrderForLog && mainOrderForLog.length ? mainOrderForLog[0].id : null;
     if(existing){
       await saveSnapshot('darien_addons', existing.id, existing.items||{}, (existing.week_label||'')+' — before edit');
       const delivered=existing.delivered||{};
       const allDone=Object.keys(items).every(k=>Number(delivered[k]||0)>=Number(items[k]||0));
       await sb.from('darien_addons').update({items, requested_by:name, status:allDone?'fulfilled':'open'}).eq('id',existing.id);
+      await logActivity(logOrderId, weekLbl, 'addon_edited', `Add-on edited by ${name}: ${itemsSummary}`, name);
     } else {
       await sb.from('darien_addons').insert({week_label:weekLbl, requested_by:name, items, delivered:{}, status:'open'});
+      await logActivity(logOrderId, weekLbl, 'addon_submitted', `Add-on submitted by ${name}: ${itemsSummary}`, name);
     }
     onDone();
   };
@@ -1239,17 +1320,18 @@ function deliveryRow(item, remaining, deliveredQty, source, recordId){
 // Darien's own "Order Status" tile — this week's order as a real table:
 // Item | Ordered | Add-Ons | Total | Picked Up (✓). No on-hand shown here —
 // that stays Westmont-only.
-async function showDarienOrderStatus(){
+async function showDarienOrderStatus(editMode){
   showLoading();
   const curWeek=currentWeekNumber();
   const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(5);
   const order=(data||[]).find(r=>weekNumberForDate(new Date(r.started_at))===curWeek);
 
-  let rows='';
+  let rows='', weekAddonsGlobal=[];
   if(order){
     const delivered=order.delivered||{};
     const {data:weekAddons}=await sb.from('darien_addons').select('*').eq('week_label',order.week_label);
     const addons=weekAddons||[];
+    weekAddonsGlobal=addons;
     ALL_ITEMS.forEach(item=>{
       const ordered=Number(order.counts?.[item.id]||0);
       let addonQty=0, addonDelivered=0;
@@ -1258,26 +1340,37 @@ async function showDarienOrderStatus(){
         addonDelivered+=Number((a.delivered||{})[item.id]||0);
       });
       const total=ordered+addonQty;
-      if(total<=0) return;
+      if(total<=0 && !editMode) return;
       const pickedUp=Number(delivered[item.id]||0)+addonDelivered;
       const done=pickedUp>=total;
-      rows+=`<tr style="${done?'background:#E8F5ED;':''}">
-        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;">${ordered||'—'}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:800;">${total}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:15px;text-align:center;">${done?'✅':''}</td>
-      </tr>`;
+      if(editMode){
+        rows+=`<tr>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}</td>
+          <td style="padding:6px 10px;border-bottom:1px solid #EEE;text-align:center;"><input class="SI" type="number" min="0" step="any" inputmode="decimal" data-edit-ordered="${item.id}" value="${ordered}" style="width:64px;height:34px;font-size:13px;"></td>
+          <td style="padding:6px 10px;border-bottom:1px solid #EEE;text-align:center;"><input class="SI" type="number" min="0" step="any" inputmode="decimal" data-edit-addon="${item.id}" value="${addonQty}" style="width:64px;height:34px;font-size:13px;color:#1B6B3A;"></td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:800;" data-total-cell="${item.id}">${total}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:15px;text-align:center;">${done?'✅':''}</td>
+        </tr>`;
+      } else {
+        rows+=`<tr style="${done?'background:#E8F5ED;':''}">
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;">${ordered||'—'}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:800;">${total}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:15px;text-align:center;">${done?'✅':''}</td>
+        </tr>`;
+      }
     });
   }
 
   app.innerHTML = `
     <header class="H no-print">
-      <div class="H-logo">Order Status</div>
-      <div class="H-right"><button class="B B-ghost" id="bStatusBack">← Darien</button></div>
+      <div class="H-logo">${editMode?'Edit Order':'Order Status'}</div>
+      <div class="H-right"><button class="B B-ghost" id="bStatusBack">← ${editMode?'Cancel':'Darien'}</button></div>
     </header>
     <div class="Page" style="padding-top:12px;">
       ${order ? `<div style="font-size:12px;color:#777;margin-bottom:12px;">${order.week_label}</div>` : ''}
+      ${editMode ? `<div class="Modal-field" style="margin-bottom:12px;"><label>Your name</label><input id="editorName" placeholder="Your name"></div>` : ''}
       <div class="LocBlock" style="overflow-x:auto;">
         ${order ? `<table style="width:100%;border-collapse:collapse;">
           <thead><tr style="background:#F7F7F7;">
@@ -1290,11 +1383,72 @@ async function showDarienOrderStatus(){
           <tbody>${rows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#999;font-size:13px;">Nothing ordered yet this week.</td></tr>'}</tbody>
         </table>` : '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No order has been placed yet this week.</div>'}
       </div>
-      ${order ? '<button class="B B-red" id="bVerifyOrder" style="width:100%;justify-content:center;height:48px;margin-top:16px;">✅ Verify Order</button>' : ''}
+      ${order ? (editMode
+        ? '<button class="B B-red" id="bSaveEdit" style="width:100%;justify-content:center;height:48px;margin-top:16px;">💾 Save</button>'
+        : '<button class="B B-outline" id="bEditOrder" style="width:100%;justify-content:center;height:48px;margin-top:16px;">✏️ Edit / Add-On</button><button class="B B-red" id="bVerifyOrder" style="width:100%;justify-content:center;height:48px;margin-top:10px;">✅ Verify Order</button>'
+      ) : ''}
     </div>`;
 
-  document.getElementById('bStatusBack').onclick=()=>showDarienMenu();
+  document.getElementById('bStatusBack').onclick=()=>showDarienOrderStatus(false);
   if(document.getElementById('bVerifyOrder')) document.getElementById('bVerifyOrder').onclick=()=>showVerifyOrder(order);
+  if(document.getElementById('bEditOrder')) document.getElementById('bEditOrder').onclick=()=>showDarienOrderStatus(true);
+  if(document.getElementById('bSaveEdit')){
+    document.getElementById('bSaveEdit').onclick=async ()=>{
+      const editorName=document.getElementById('editorName').value.trim()||'Unnamed';
+      showLoading();
+      const newCounts={...order.counts};
+      const orderChanges=[];
+      document.querySelectorAll('[data-edit-ordered]').forEach(inp=>{
+        const itemId=inp.dataset.editOrdered;
+        const newVal=inp.value.trim();
+        const oldVal=String(order.counts?.[itemId]||0);
+        if(newVal!==oldVal){
+          const item=ITEM_BY_ID[itemId];
+          orderChanges.push(`${item?item.name:itemId}: ${oldVal}→${newVal}`);
+          newCounts[itemId]=newVal;
+        }
+      });
+      if(orderChanges.length){
+        await saveSnapshot('prep_counts', order.id, order.counts||{}, order.week_label+' — before inline edit');
+        await sb.from(TABLE).update({counts:newCounts, acknowledged:false, acknowledged_at:null}).eq('id',order.id);
+      }
+
+      // Add-ons: reconcile against the single most-relevant add-on record this week (create one if needed)
+      const addonChanges=[];
+      const addonNewTotals={};
+      document.querySelectorAll('[data-edit-addon]').forEach(inp=>{
+        const itemId=inp.dataset.editAddon;
+        addonNewTotals[itemId]=Number(inp.value.trim()||0);
+      });
+      const anyAddonChanged=Object.keys(addonNewTotals).some(itemId=>{
+        let curTotal=0;
+        weekAddonsGlobal.forEach(a=>{ curTotal+=Number((a.items||{})[itemId]||0); });
+        return curTotal!==addonNewTotals[itemId];
+      });
+      if(anyAddonChanged){
+        let target=weekAddonsGlobal[0];
+        if(target) await saveSnapshot('darien_addons', target.id, target.items||{}, order.week_label+' — before inline edit');
+        const newItems={};
+        Object.keys(addonNewTotals).forEach(itemId=>{
+          if(addonNewTotals[itemId]>0){
+            newItems[itemId]=String(addonNewTotals[itemId]);
+            const item=ITEM_BY_ID[itemId];
+            const before=target?Number((target.items||{})[itemId]||0):0;
+            if(before!==addonNewTotals[itemId]) addonChanges.push(`${item?item.name:itemId}: ${before}→${addonNewTotals[itemId]}`);
+          }
+        });
+        if(target){
+          await sb.from('darien_addons').update({items:newItems, requested_by:editorName}).eq('id',target.id);
+        } else if(Object.keys(newItems).length){
+          await sb.from('darien_addons').insert({week_label:order.week_label, requested_by:editorName, items:newItems, delivered:{}, status:'open'});
+        }
+      }
+
+      const summary=[...orderChanges.map(c=>'Order '+c), ...addonChanges.map(c=>'Add-on '+c)].join('; ');
+      if(summary) await logActivity(order.id, order.week_label, 'edited', `Edited by ${editorName}: ${summary}`, editorName);
+      showDarienOrderStatus(false);
+    };
+  }
 }
 
 // ─── DARIEN'S ORDER VERIFICATION (Is it correct? Yes / No + missing items) ──
@@ -1336,6 +1490,7 @@ function showVerifyCertify(order){
     closeModal();
     showLoading();
     await sb.from('darien_verifications').insert({order_id:order.id, week_label:order.week_label, is_correct:true, missing_items:{}, verified_by:name});
+    await logActivity(order.id, order.week_label, 'verified_correct', `Order verified correct by ${name}`, name);
     showDarienOrderStatus();
   };
 }
@@ -1382,6 +1537,8 @@ function showMissingItemsPicker(order){
     const name=document.getElementById('missingName').value.trim()||'Unnamed';
     showLoading();
     await sb.from('darien_verifications').insert({order_id:order.id, week_label:order.week_label, is_correct:false, missing_items:missing, verified_by:name});
+    const missingSummary=Object.keys(missing).map(k=>{ const it=ITEM_BY_ID[k]; return it?`${it.name} short ${missing[k]}`:''; }).filter(Boolean).join(', ');
+    await logActivity(order.id, order.week_label, 'reported_missing', `${name} reported missing items: ${missingSummary}`, name);
     showDarienOrderStatus();
   };
 }
@@ -1567,6 +1724,8 @@ async function showActiveOrdersTable(){
                 await sb.from('darien_addons').update({delivered:adel, status:allDone?'fulfilled':'open'}).eq('id',a.id);
               }
             }
+            const itemName=ITEM_BY_ID[itemId]?.name||itemId;
+            await logActivity(mainOrder.id, mainOrder.week_label, 'picked_up', `${itemName} marked picked up by Westmont (${sunOrder+weekAddons.reduce((s,a)=>s+Number((a.items||{})[itemId]||0),0)} total)`);
             showActiveOrdersTable();
           }},
         ]);
@@ -2384,6 +2543,10 @@ async function finishAndPrint(cert){
   }
   showLoading();
   await sb.from(TABLE).update({counts, status:'completed', completed_at:completedAt, acknowledged:false, acknowledged_at:null}).eq('id',session.id);
+  if(lk==='darien'){
+    const who=cert?cert.certifiedBy:session.counter_name;
+    await logActivity(session.id, session.week_label, session._originalCounts!==undefined?'edited':'placed', session._originalCounts!==undefined?`Order edited by ${who}`:`Order placed by ${who}`, who);
+  }
   doPrint({...session, counts, completed_at:completedAt}, LOCATIONS[lk], lk);
   lk==='darien'?showDarienMenu():showDashboard(lk);
 }
