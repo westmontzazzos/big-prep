@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '20.2';
+const APP_VERSION = '20.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -531,8 +531,7 @@ async function showDarienCountsView(){
     const avg = validVals.length ? (validVals.reduce((a,b)=>a+b,0)/validVals.length).toFixed(1) : '—';
     const cells=days.map((d,i)=>`<td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:600;">${isNaN(vals[i])?'—':vals[i]}</td>`).join('');
     return `<tr>
-      <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}</td>
-      <td style="padding:8px 6px;font-size:12px;text-align:center;color:#999;">${par!=null?par:'—'}</td>
+      <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}${par!=null?` <span style="color:#999;font-weight:400;">(Par: ${par})</span>`:''}</td>
       ${cells}
       <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#C8102E;">${avg}</td>
     </tr>`;
@@ -548,11 +547,10 @@ async function showDarienCountsView(){
         <table style="width:100%;border-collapse:collapse;">
           <thead><tr style="background:#F7F7F7;">
             <th style="padding:8px 10px;font-size:9px;color:#999;text-transform:uppercase;text-align:left;">Item</th>
-            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Par</th>
             ${headerCells}
             <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Avg</th>
           </tr></thead>
-          <tbody>${rows || `<tr><td colspan="${3+days.length}" style="padding:20px;text-align:center;color:#999;font-size:13px;">No daily on-hand data yet.</td></tr>`}</tbody>
+          <tbody>${rows || `<tr><td colspan="${2+days.length}" style="padding:20px;text-align:center;color:#999;font-size:13px;">No daily on-hand data yet.</td></tr>`}</tbody>
         </table>
       </div>
     </div>`;
