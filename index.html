@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '22.3';
+const APP_VERSION = '22.4';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1224,12 +1224,14 @@ async function getLatestDailyOnHand(){
   return data[0];
 }
 
-async function showDailyOnHand(){
+async function showDailyOnHand(targetDate){
   showLoading();
   const today=todayDateStr();
+  const date=targetDate||today;
+  const isToday=date===today;
   const darienPars=await loadPars('darien');
-  const {data:existing}=await sb.from('darien_daily_onhand').select('*').eq('date',today).limit(1);
-  const record=(existing && existing.length) ? existing[0] : {date:today, counts:{}, updated_by:'', updated_at:null};
+  const {data:existing}=await sb.from('darien_daily_onhand').select('*').eq('date',date).limit(1);
+  const record=(existing && existing.length) ? existing[0] : {date, counts:{}, updated_by:'', updated_at:null};
 
   const rows = CATEGORIES.filter(cat=>cat.items.some(i=>darienPars[i.id]!=null)).map(cat=>`
     <div style="margin-bottom:14px;">
@@ -1254,11 +1256,15 @@ async function showDailyOnHand(){
       <div class="H-logo">Daily On-Hand</div>
       <div class="H-right">
         <button class="B B-ghost" id="bOnHandHistory">🕐 History</button>
-        <button class="B B-ghost" id="bOnHandCancel">← Cancel</button>
+        <button class="B B-ghost" id="bOnHandCancel">← Darien</button>
       </div>
     </header>
     <div class="Page" style="padding-top:12px;">
-      <div style="font-size:12px;color:#777;margin-bottom:14px;">Today · ${new Date(today+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}${record.updated_at?' · Already saved once today':''}</div>
+      <div class="Modal-field" style="margin-bottom:12px;">
+        <label>Date</label>
+        <input type="date" id="onhandDatePicker" value="${date}" max="${today}" style="width:100%;height:44px;border:2px solid #E2E2E2;border-radius:8px;padding:0 12px;font-size:15px;font-family:'Inter',sans-serif;">
+      </div>
+      <div style="font-size:12px;color:#777;margin-bottom:14px;">${isToday?'Today · ':''}${new Date(date+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}${record.updated_at?' · Already saved once for this day':''}</div>
       <div class="Modal-field" style="margin-bottom:16px;">
         <label>Your name</label>
         <input id="onhandName" placeholder="Who's updating this" value="${(record.updated_by||'').replace(/"/g,'&quot;')}">
@@ -1271,8 +1277,9 @@ async function showDailyOnHand(){
       <button class="Fbtn Fbtn-next" id="bOnHandSave">💾 Save</button>
     </div>`;
 
-  document.getElementById('bOnHandCancel').onclick=document.getElementById('bOnHandCancel2').onclick=()=>showDashboard('darien');
+  document.getElementById('bOnHandCancel').onclick=document.getElementById('bOnHandCancel2').onclick=()=>showDarienMenu();
   document.getElementById('bOnHandHistory').onclick=()=>showDailyOnHandHistory();
+  document.getElementById('onhandDatePicker').onchange=(e)=>showDailyOnHand(e.target.value);
   document.getElementById('bOnHandSave').onclick=async ()=>{
     const counts={};
     document.querySelectorAll('[data-onhand-item]').forEach(inp=>{
@@ -1280,9 +1287,9 @@ async function showDailyOnHand(){
     });
     const updatedBy=document.getElementById('onhandName').value.trim();
     showLoading();
-    if(record.updated_at) await saveSnapshot('darien_daily_onhand', today, record.counts||{}, today+' — before update');
-    await sb.from('darien_daily_onhand').upsert({date:today, counts, updated_by:updatedBy, updated_at:new Date().toISOString()}, {onConflict:'date'});
-    showDashboard('darien');
+    if(record.updated_at) await saveSnapshot('darien_daily_onhand', date, record.counts||{}, date+' — before update');
+    await sb.from('darien_daily_onhand').upsert({date, counts, updated_by:updatedBy, updated_at:new Date().toISOString()}, {onConflict:'date'});
+    showDarienMenu();
   };
 }
 
@@ -1337,7 +1344,10 @@ function showDailyOnHandDayDetail(rec){
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">${new Date(rec.date+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}</div>
-      <div class="H-right"><button class="B B-ghost" id="bDayDetailBack">← History</button></div>
+      <div class="H-right">
+        <button class="B B-ghost" id="bDayDetailEdit">✏️ Edit</button>
+        <button class="B B-ghost" id="bDayDetailBack">← History</button>
+      </div>
     </header>
     <div class="Page" style="padding-top:12px;">
       <div style="font-size:12px;color:#777;margin-bottom:12px;">${rec.updated_by?'Updated by '+rec.updated_by:''}</div>
@@ -1345,6 +1355,7 @@ function showDailyOnHandDayDetail(rec){
     </div>`;
 
   document.getElementById('bDayDetailBack').onclick=()=>showDailyOnHandHistory();
+  document.getElementById('bDayDetailEdit').onclick=()=>showDailyOnHand(rec.date);
 }
 
 async function showDailyOnHandView(){
