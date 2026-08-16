@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '22.2';
+const APP_VERSION = '22.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -540,10 +540,13 @@ async function showDarienCountsView(backFn){
   backFn = backFn || (()=>showCountsMenu());
   showLoading();
   const darienPars=await loadPars('darien');
-  const {data:recentDays}=await sb.from('darien_daily_onhand').select('*').order('date',{ascending:false}).limit(3);
-  const days=(recentDays||[]).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  // Anchored to Saturday specifically - that's the day Westmont actually
+  // plans the week off of, not just "whatever the last 3 days happened to be."
+  const {data:recentAll}=await sb.from('darien_daily_onhand').select('*').order('date',{ascending:false}).limit(60);
+  const saturdaysOnly=(recentAll||[]).filter(rec=>new Date(rec.date+'T00:00:00').getDay()===6);
+  const days=saturdaysOnly.slice(0,3).sort((a,b)=>new Date(b.date)-new Date(a.date));
 
-  const headerCells=days.map(d=>`<th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">${new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</th>`).join('');
+  const headerCells=days.map(d=>`<th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Sat ${new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</th>`).join('');
   const rows = ALL_ITEMS.map(item=>{
     const par=darienPars[item.id];
     const vals=days.map(d=>Number(d.counts?.[item.id]??null));
@@ -564,6 +567,7 @@ async function showDarienCountsView(backFn){
       <div class="H-right"><button class="B B-ghost" id="bDarienCountsBack">← Back</button></div>
     </header>
     <div class="Page" style="padding-top:12px;">
+      <div style="font-size:12px;color:#777;margin-bottom:12px;">Last 3 Saturdays — what Darien had heading into each week</div>
       <div class="LocBlock" style="overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;">
           <thead><tr style="background:#F7F7F7;">
@@ -571,7 +575,7 @@ async function showDarienCountsView(backFn){
             ${headerCells}
             <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Avg</th>
           </tr></thead>
-          <tbody>${rows || `<tr><td colspan="${2+days.length}" style="padding:20px;text-align:center;color:#999;font-size:13px;">No daily on-hand data yet.</td></tr>`}</tbody>
+          <tbody>${rows || `<tr><td colspan="${2+days.length}" style="padding:20px;text-align:center;color:#999;font-size:13px;">No Saturday on-hand data logged yet.</td></tr>`}</tbody>
         </table>
       </div>
     </div>`;
