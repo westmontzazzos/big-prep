@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '21.9';
+const APP_VERSION = '22.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -155,9 +155,9 @@ const CATEGORIES = [
     {id:'chicken_wings',name:'Chicken Wings',unit:'bucket (16 bags of 12)', mult:192, baseUnit:'ct', containerLabel:'bucket'},
   ]},
   {name:'Frozen Pizza', items:[
-    {id:'pizza_cheese',name:'Cheese',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
-    {id:'pizza_sausage',name:'Sausage',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
-    {id:'pizza_pepperoni',name:'Pepperoni',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_cheese',name:'Cheese Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_sausage',name:'Sausage Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_pepperoni',name:'Pepperoni Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
   ]},
 ];
 const ALL_ITEMS = CATEGORIES.flatMap(c=>c.items);
@@ -407,10 +407,17 @@ function mostRecentSunday(d){
   return sun;
 }
 
-function catFilledCount(cat){ return cat.items.filter(i=>(session.counts[i.id]??'')!=='' ).length; }
-function catComplete(cat){ return cat.items.every(i=>(session.counts[i.id]??'')!=='' ); }
-function totalItems(){ return ALL_ITEMS.length; }
-function totalCounted(){ return ALL_ITEMS.filter(i=>(session.counts[i.id]??'')!=='' ).length; }
+// Darien only orders items that have a par set - anything without one
+// (chicken parm, grilled chicken, lemon chicken, ribs, wings) doesn't show
+// up for them at all, though Westmont's own counts are unaffected.
+function visibleCatItems(cat){
+  if(activeLoc!=='darien') return cat.items;
+  return cat.items.filter(i=>currentPars[i.id]!=null);
+}
+function catFilledCount(cat){ return visibleCatItems(cat).filter(i=>(session.counts[i.id]??'')!=='' ).length; }
+function catComplete(cat){ return visibleCatItems(cat).every(i=>(session.counts[i.id]??'')!=='' ); }
+function totalItems(){ return activeLoc==='darien' ? CATEGORIES.reduce((s,c)=>s+visibleCatItems(c).length,0) : ALL_ITEMS.length; }
+function totalCounted(){ return (activeLoc==='darien' ? CATEGORIES.flatMap(visibleCatItems) : ALL_ITEMS).filter(i=>(session.counts[i.id]??'')!=='' ).length; }
 function allComplete(){ return CATEGORIES.every(catComplete); }
 
 // ─── BOOT ────────────────────────────────────────────────────────────────────
@@ -2526,14 +2533,14 @@ function showCount(){
   const done=allComplete();
   const counted=totalCounted(), total=totalItems();
 
-  const blocks = CATEGORIES.map((cat,ci)=>{
+  const blocks = CATEGORIES.filter(cat=>visibleCatItems(cat).length>0).map((cat,ci)=>{
     const filled=catFilledCount(cat);
     const complete=catComplete(cat);
     const isOpen=openCat===cat.name;
     const badgeCls = complete?'badge-done':'badge-active';
-    const badgeTxt = complete?'✓ Done':filled+' / '+cat.items.length;
+    const badgeTxt = complete?'✓ Done':filled+' / '+visibleCatItems(cat).length;
 
-    const rows = cat.items.map((item,idx)=>{
+    const rows = visibleCatItems(cat).map((item,idx)=>{
       const val=session.counts[item.id] ?? '';
       const totalTxt = val!=='' ? ('= '+(Number(val)*item.mult)+' '+item.baseUnit) : '';
 
