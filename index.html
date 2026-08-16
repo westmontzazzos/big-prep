@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '21.8';
+const APP_VERSION = '21.9';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -529,7 +529,8 @@ function showCountsMenu(){
 
 // Read-only: Item | Par | last 3 days' on-hand | Average — from the Daily
 // On-Hand table, not the weekly order.
-async function showDarienCountsView(){
+async function showDarienCountsView(backFn){
+  backFn = backFn || (()=>showCountsMenu());
   showLoading();
   const darienPars=await loadPars('darien');
   const {data:recentDays}=await sb.from('darien_daily_onhand').select('*').order('date',{ascending:false}).limit(3);
@@ -552,8 +553,8 @@ async function showDarienCountsView(){
 
   app.innerHTML = `
     <header class="H no-print">
-      <div class="H-logo">Darien Counts</div>
-      <div class="H-right"><button class="B B-ghost" id="bDarienCountsBack">← Counts</button></div>
+      <div class="H-logo">Live Counts</div>
+      <div class="H-right"><button class="B B-ghost" id="bDarienCountsBack">← Back</button></div>
     </header>
     <div class="Page" style="padding-top:12px;">
       <div class="LocBlock" style="overflow-x:auto;">
@@ -568,7 +569,7 @@ async function showDarienCountsView(){
       </div>
     </div>`;
 
-  document.getElementById('bDarienCountsBack').onclick=()=>showCountsMenu();
+  document.getElementById('bDarienCountsBack').onclick=backFn;
 }
 
 // ─── ORDERS SUB-MENU (Active Orders / Past Orders) ──────────────────────────
@@ -767,6 +768,10 @@ function showDarienMenu(){
         <div class="MenuTile-emoji">🔄</div>
         <div><div class="MenuTile-title">Daily On-Hand</div><div class="MenuTile-sub">Quick update, takes 20 seconds</div></div>
       </div>
+      <div class="MenuTile" id="bMenuLiveCounts">
+        <div class="MenuTile-emoji">📈</div>
+        <div><div class="MenuTile-title">Live Counts</div><div class="MenuTile-sub">Same view Westmont sees</div></div>
+      </div>
     </div>`;
 
   document.getElementById('bMenuHome').onclick=()=>showHome();
@@ -774,6 +779,7 @@ function showDarienMenu(){
   document.getElementById('bMenuOnHand').onclick=()=>showDailyOnHand();
   document.getElementById('bMenuOrderStatus').onclick=()=>showDarienOrderStatus();
   document.getElementById('bMenuEditAddOn').onclick=()=>showDarienOrderStatus(true);
+  document.getElementById('bMenuLiveCounts').onclick=()=>{ activeLoc='darien'; showDarienCountsView(()=>showDarienMenu()); };
 }
 
 // ─── EDIT A COMPLETED ORDER/COUNT ────────────────────────────────────────────
