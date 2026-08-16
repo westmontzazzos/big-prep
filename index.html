@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '22.1';
+const APP_VERSION = '22.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1809,6 +1809,7 @@ async function showActiveOrdersTable(){
   }
 
   let bodyRows='', pickedUpRows='', sunTotal=0, addonTotal=0, grandTotal=0;
+  const printItems=[];
   if(mainOrder){
     const delivered=mainOrder.delivered||{};
     ALL_ITEMS.forEach(item=>{
@@ -1825,6 +1826,7 @@ async function showActiveOrdersTable(){
       const mainDelivered=Number(delivered[item.id]||0);
       const pickedUp=mainDelivered+addonDelivered;
       const done=pickedUp>=total;
+      printItems.push({item, ordered:total, pickedUp});
       if(done){
         const fmtTs=ts=>ts?new Date(ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
         const mainTs = mainDelivered>0 ? fmtTs((mainOrder.delivered_at||{})[item.id]) : '';
@@ -1870,7 +1872,10 @@ async function showActiveOrdersTable(){
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">Active Orders</div>
-      <div class="H-right"><button class="B B-ghost" id="bActiveBack">← Orders</button></div>
+      <div class="H-right">
+        <button class="B B-ghost" id="bActivePrint">🖨 Print</button>
+        <button class="B B-ghost" id="bActiveBack">← Orders</button>
+      </div>
     </header>
     <div class="Page" style="padding-top:12px;">
       ${mainOrder ? `<div style="font-size:12px;color:#777;margin-bottom:10px;">${mainOrder.week_label}</div>` : ''}
@@ -1913,6 +1918,7 @@ async function showActiveOrdersTable(){
     </div>`;
 
   document.getElementById('bActiveBack').onclick=()=>showOrdersMenu();
+  document.getElementById('bActivePrint').onclick=()=>printTrackerSheet('DARIEN ORDER', mainOrder?mainOrder.week_label:'', printItems);
   if(mainOrder){
     document.querySelectorAll('[data-mark-picked]').forEach(btn=>{
       btn.onclick=async ()=>{
