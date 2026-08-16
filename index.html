@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '22.8';
+const APP_VERSION = '22.9';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -218,6 +218,16 @@ let saveTimer = null;
 let selectedWeek = null; // which week tab is open on the dashboard
 let currentPars = {};    // par levels for the active location, keyed by item id
 let currentDarienOwed = {}; // Westmont-only: what's currently owed to Darien, keyed by item id
+let currentDarienOnHand = {}; // Westmont-only: Darien's on-hand for whatever day Westmont is counting
+
+// Whatever day Westmont is actively counting, pull in Darien's on-hand from
+// that SAME day (if logged) so Westmont sees a full picture while counting -
+// not just Saturday specifically, any day they count.
+async function getDarienOnHandForToday(){
+  const today=todayDateStr();
+  const {data}=await sb.from('darien_daily_onhand').select('counts').eq('date',today).limit(1);
+  return (data && data.length) ? (data[0].counts||{}) : {};
+}
 let testMode = false;    // when true, nothing is read from or written to Supabase
 const testSessions = {westmont:null, darien:null}; // in-memory only, lost on refresh
 const app = document.getElementById('app');
@@ -811,13 +821,15 @@ async function editCompletedOrder(row){
   openCat=CATEGORIES[0].name;
   currentPars=await loadPars(row.location);
   currentDarienOwed = row.location==='westmont' ? await getDarienAllocatedMap() : {};
+  currentDarienOnHand = row.location==='westmont' ? await getDarienOnHandForToday() : {};
   showCount();
 }
 
 async function goToCounting(lk){
   activeLoc=lk;
   if(testMode){
-    if(testSessions[lk]){ session=testSessions[lk]; openCat=CATEGORIES[0].name; currentPars=await loadPars(lk); currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {}; showCount(); }
+    if(testSessions[lk]){ session=testSessions[lk]; openCat=CATEGORIES[0].name; currentPars=await loadPars(lk); currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
+    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {}; showCount(); }
     else showSetupModal(lk);
     return;
   }
@@ -829,6 +841,7 @@ async function goToCounting(lk){
     openCat=CATEGORIES[0].name;
     currentPars=await loadPars(lk);
     currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
+    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
     showCount();
   } else {
     showSetupModal(lk);
@@ -2533,6 +2546,7 @@ function showSetupModal(lk){
       openCat=CATEGORIES[0].name;
       currentPars=await loadPars(lk);
       currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
+    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
       showCount();
       return;
     }
@@ -2543,6 +2557,7 @@ function showSetupModal(lk){
     openCat=CATEGORIES[0].name;
     currentPars=await loadPars(lk);
     currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
+    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
     showCount();
   };
 }
@@ -2585,11 +2600,13 @@ function showCount(){
       const hasOwed = owed>0;
       const trueVal = (hasOwed && val!=='') ? Number(val)-owed : null;
       const trueColorVal = trueVal!=null ? (trueVal<0?'#C8102E':'#1B6B3A') : '#999';
+      const darienOnHandVal = currentDarienOnHand[item.id];
+      const hasDarienOnHand = darienOnHandVal!=null && darienOnHandVal!=='';
 
       return `<div class="ProdRow" style="${hasOwed?'background:#FFFBF0;':''}">
         <div class="ProdRow-info">
           <div class="ProdRow-name">${item.name}</div>
-          <div class="ProdRow-meta">${item.unit}${totalTxt?' · <span class="ProdRow-total" data-total="'+item.id+'">'+totalTxt+'</span>':'<span class="ProdRow-total" data-total="'+item.id+'"></span>'}</div>
+          <div class="ProdRow-meta">${item.unit}${totalTxt?' · <span class="ProdRow-total" data-total="'+item.id+'">'+totalTxt+'</span>':'<span class="ProdRow-total" data-total="'+item.id+'"></span>'}${hasDarienOnHand?' · <span style="color:#1B6B3A;font-weight:700;">Darien has: '+darienOnHandVal+'</span>':''}</div>
         </div>
         <div class="DualInput">
           <div class="IG"><label>${l.fieldLabel}</label>
