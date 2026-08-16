@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '22.0';
+const APP_VERSION = '22.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1227,16 +1227,16 @@ async function showDailyOnHand(){
   const {data:existing}=await sb.from('darien_daily_onhand').select('*').eq('date',today).limit(1);
   const record=(existing && existing.length) ? existing[0] : {date:today, counts:{}, updated_by:'', updated_at:null};
 
-  const rows = CATEGORIES.map(cat=>`
+  const rows = CATEGORIES.filter(cat=>cat.items.some(i=>darienPars[i.id]!=null)).map(cat=>`
     <div style="margin-bottom:14px;">
       <div style="font-size:11px;font-weight:700;color:#999;text-transform:uppercase;margin-bottom:6px;">${cat.name}</div>
       <div class="LocBlock">
-      ${cat.items.map(item=>{
+      ${cat.items.filter(item=>darienPars[item.id]!=null).map(item=>{
         const par=darienPars[item.id];
         return `
         <div class="ProdRow">
           <div class="ProdRow-info">
-            <div class="ProdRow-name">${item.name}${par!=null?` <span style="color:#999;font-weight:400;">(Par: ${par})</span>`:''}</div>
+            <div class="ProdRow-name">${item.name} <span style="color:#999;font-weight:400;">(Par: ${par})</span></div>
             <div class="ProdRow-meta">${item.unit}</div>
           </div>
           <input class="SI" type="number" min="0" step="any" inputmode="decimal" data-onhand-item="${item.id}" placeholder="0" value="${record.counts?.[item.id]||''}">
