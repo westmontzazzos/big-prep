@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '23.1';
+const APP_VERSION = '24.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -172,34 +172,38 @@ const LOCATIONS = {
 // Week 1 = the Monday–Sunday of our first real data (Jul 6–12, 2026).
 // Both locations share this same numbering so "Week 3" means the same
 // calendar week on both sides, even if one side has no data for it yet.
-const WEEK1_MONDAY = new Date(2026, 6, 6); // July 6, 2026, in LOCAL time — must match
+const WEEK1_START = new Date(2026, 6, 4); // July 4, 2026 (a Saturday), in LOCAL time — must match
 // the local-time arithmetic used everywhere else (mondayOf, getDay, setDate, etc.)
 // A UTC-anchored epoch here would shift every week boundary back a day for anyone
 // in a negative UTC offset timezone (e.g. US) once formatted/compared locally.
+// Weeks run Saturday through Friday (Westmont counts Saturday and Wednesday,
+// closes out the week on Friday, and starts fresh the next Saturday).
 const MS_PER_WEEK = 7*24*60*60*1000;
 function weekNumberForDate(d){
-  return Math.floor((d.getTime()-WEEK1_MONDAY.getTime())/MS_PER_WEEK)+1;
+  return Math.floor((d.getTime()-WEEK1_START.getTime())/MS_PER_WEEK)+1;
 }
 function weekRangeLabel(n){
-  const mon=new Date(WEEK1_MONDAY.getTime()+(n-1)*MS_PER_WEEK);
-  const sun=new Date(mon.getTime()+6*24*60*60*1000);
+  const sat=new Date(WEEK1_START.getTime()+(n-1)*MS_PER_WEEK);
+  const fri=new Date(sat.getTime()+6*24*60*60*1000);
   const fmt=d=>d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-  return fmt(mon)+' – '+fmt(sun);
+  return fmt(sat)+' – '+fmt(fri);
 }
 function currentWeekNumber(){ return weekNumberForDate(new Date()); }
 
-// Darien orders run Monday–Sunday. If an in-progress Darien week's Sunday has
-// already passed and nobody closed it out, auto-complete it the next time
-// anyone opens the app (there's no true background scheduler available here,
-// so this "lazy" check on Home load is the practical substitute). It can
-// still be fixed afterward with the normal Edit flow if something was missed.
+// Darien orders run Monday–Sunday regardless of Westmont's Saturday–Friday
+// counting week - these are two separate cycles. If an in-progress Darien
+// week's Sunday has already passed and nobody closed it out, auto-complete
+// it the next time anyone opens the app (there's no true background
+// scheduler available here, so this "lazy" check on Home load is the
+// practical substitute). It can still be fixed afterward with the normal
+// Edit flow if something was missed.
 async function autoCloseExpiredDarienWeek(){
   if(testMode) return;
   const {data}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','in_progress').order('started_at',{ascending:false}).limit(1);
   if(!data || !data.length) return;
   const row=data[0];
   const wk=weekNumberForDate(new Date(row.started_at));
-  const weekEnd=new Date(WEEK1_MONDAY.getTime()+wk*MS_PER_WEEK); // the following Monday = end of this week
+  const weekEnd=new Date(WEEK1_START.getTime()+wk*MS_PER_WEEK);
   if(new Date()>=weekEnd){
     await sb.from(TABLE).update({
       status:'completed',
