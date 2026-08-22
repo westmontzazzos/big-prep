@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '22.9';
+const APP_VERSION = '23.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -806,6 +806,28 @@ function showDarienMenu(){
 // Reopens a finished week for correction. Once re-finished, it overrides that
 // same row — for Darien this also resets acknowledged back to false, so
 // Westmont has to review + acknowledge the corrected numbers just like new.
+// Starts a brand new, completely separate count for a week that's already
+// been completed once - for anyone counting more than once a week (e.g.
+// Westmont counting both Saturday and Wednesday). Does NOT touch the
+// existing completed record at all.
+async function startFreshCount(lk, weekLabel){
+  showLoading();
+  activeLoc=lk;
+  const nowIso=new Date().toISOString();
+  if(testMode){
+    session={location:lk, week_label:weekLabel, counter_name:'', counts:{}, status:'in_progress', started_at:nowIso, id:'test-'+Date.now()};
+    testSessions[lk]=session;
+  } else {
+    const {data:created}=await sb.from(TABLE).insert({location:lk, week_label:weekLabel, counter_name:'', counts:{}, status:'in_progress', started_at:nowIso}).select().single();
+    session=created;
+  }
+  openCat=CATEGORIES[0].name;
+  currentPars=await loadPars(lk);
+  currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
+  currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
+  showCount();
+}
+
 async function editCompletedOrder(row){
   activeLoc=row.location;
   const originalCountsSnapshot = JSON.stringify(row.counts||{});
@@ -1042,9 +1064,10 @@ async function showDashboard(lk){
   document.getElementById('bDashNotes').onclick=()=>{ activeLoc=lk; showNotes(()=>showDashboard(lk), activeSession?activeSession.id:null, activeSession?activeSession.week_label:null); };
   document.getElementById('bDashAction').onclick=()=>{
     if(activeSession && activeSession.status==='completed'){
-      showModal('Edit '+activeSession.week_label+'?','This reopens the completed numbers so you can fix them. Once you tap Complete again, it overrides this week\'s numbers'+(lk==='darien'?' and Westmont has to re-acknowledge it, just like a new submission':'')+'.',[
+      showModal('This week is already done', 'You can fix the existing numbers, or start a brand new count if this is a separate count for the same week (e.g. counting twice a week).',[
         {l:'Cancel',c:'B-outline',fn:closeModal},
-        {l:'Edit',c:'B-red',fn:async ()=>{ closeModal(); await editCompletedOrder(activeSession); }},
+        {l:'Start New Count',c:'B-outline',fn:async ()=>{ closeModal(); await startFreshCount(lk, activeSession.week_label); }},
+        {l:'Edit Existing',c:'B-red',fn:async ()=>{ closeModal(); await editCompletedOrder(activeSession); }},
       ]);
     } else {
       goToCounting(lk);
