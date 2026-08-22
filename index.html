@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '23.0';
+const APP_VERSION = '23.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -810,15 +810,16 @@ function showDarienMenu(){
 // been completed once - for anyone counting more than once a week (e.g.
 // Westmont counting both Saturday and Wednesday). Does NOT touch the
 // existing completed record at all.
-async function startFreshCount(lk, weekLabel){
+async function startFreshCount(lk, weekLabel, countLabel){
   showLoading();
   activeLoc=lk;
   const nowIso=new Date().toISOString();
+  const label=countLabel||'';
   if(testMode){
-    session={location:lk, week_label:weekLabel, counter_name:'', counts:{}, status:'in_progress', started_at:nowIso, id:'test-'+Date.now()};
+    session={location:lk, week_label:weekLabel, counter_name:label, counts:{}, status:'in_progress', started_at:nowIso, id:'test-'+Date.now()};
     testSessions[lk]=session;
   } else {
-    const {data:created}=await sb.from(TABLE).insert({location:lk, week_label:weekLabel, counter_name:'', counts:{}, status:'in_progress', started_at:nowIso}).select().single();
+    const {data:created}=await sb.from(TABLE).insert({location:lk, week_label:weekLabel, counter_name:label, counts:{}, status:'in_progress', started_at:nowIso}).select().single();
     session=created;
   }
   openCat=CATEGORIES[0].name;
@@ -1053,16 +1054,42 @@ async function showDashboard(lk){
       </div>
       <div style="font-size:12px;color:#777;font-weight:600;margin-bottom:14px;">${weekRangeLabel(selectedWeek)}${selectedWeek===curWeek?' · current week':''}</div>
       <div class="LocBlock">${headerRow}${rows}</div>
+      ${(lk==='westmont' && activeSession && activeSession.status==='completed') ? `
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px;">
+        <button class="B B-red" id="bStartNewCount" style="width:100%;justify-content:center;height:48px;">🆕 Start New Count</button>
+        <button class="B B-outline" id="bEditThisCount" style="width:100%;justify-content:center;height:48px;">✏️ Edit This Count</button>
+        <button class="B B-outline" id="bEndWeek" style="width:100%;justify-content:center;height:48px;">🏁 End of Week</button>
+      </div>` : ''}
     </div>
     <div class="Footer no-print">
       <button class="Fbtn" id="bDashHome2">🏠 Home</button>
       ${lk==='darien' && !testMode ? `<button class="Fbtn" id="bAddOn">📬 Add-On</button>` : `<div class="Footer-prog">${l.name} Dashboard</div>`}
-      <button class="Fbtn Fbtn-next" id="bDashAction">${!activeSession ? l.actionLabel : (activeSession.status==='completed' ? '✏️ Edit' : '✅ Complete')}</button>
+      ${(lk==='westmont' && activeSession && activeSession.status==='completed') ? '' : `<button class="Fbtn Fbtn-next" id="bDashAction">${!activeSession ? l.actionLabel : (activeSession.status==='completed' ? '✏️ Edit' : '✅ Complete')}</button>`}
     </div>`;
 
   document.getElementById('bDashHome').onclick=document.getElementById('bDashHome2').onclick=()=>showHome();
   document.getElementById('bDashNotes').onclick=()=>{ activeLoc=lk; showNotes(()=>showDashboard(lk), activeSession?activeSession.id:null, activeSession?activeSession.week_label:null); };
-  document.getElementById('bDashAction').onclick=()=>{
+  if(document.getElementById('bStartNewCount')){
+    document.getElementById('bStartNewCount').onclick=()=>{
+      showModal('Which count is this?', 'Pick which scheduled count this is, so it\'s clearly labeled.', [
+        {l:'Saturday',c:'B-outline',fn:async ()=>{ closeModal(); await startFreshCount(lk, activeSession.week_label, 'Saturday'); }},
+        {l:'Wednesday',c:'B-outline',fn:async ()=>{ closeModal(); await startFreshCount(lk, activeSession.week_label, 'Wednesday'); }},
+        {l:'Additional Count',c:'B-red',fn:async ()=>{ closeModal(); await startFreshCount(lk, activeSession.week_label, 'Additional'); }},
+      ]);
+    };
+  }
+  if(document.getElementById('bEditThisCount')){
+    document.getElementById('bEditThisCount').onclick=async ()=>{ await editCompletedOrder(activeSession); };
+  }
+  if(document.getElementById('bEndWeek')){
+    document.getElementById('bEndWeek').onclick=()=>{
+      showModal('End of Week', 'This confirms you\'re fully done counting for this week. Nothing more will be expected until next week\'s counts begin.', [
+        {l:'Cancel',c:'B-outline',fn:closeModal},
+        {l:'Confirm — Week Ended',c:'B-red',fn:()=>{ closeModal(); showDashboard(lk); }},
+      ]);
+    };
+  }
+  if(document.getElementById('bDashAction')) document.getElementById('bDashAction').onclick=()=>{
     if(activeSession && activeSession.status==='completed'){
       showModal('This week is already done', 'You can fix the existing numbers, or start a brand new count if this is a separate count for the same week (e.g. counting twice a week).',[
         {l:'Cancel',c:'B-outline',fn:closeModal},
