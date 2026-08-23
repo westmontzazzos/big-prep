@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '24.1';
+const APP_VERSION = '24.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1451,12 +1451,14 @@ function showDailyOnHandDayDetail(rec){
 async function showDailyOnHandView(){
   showLoading();
   const record=await getLatestDailyOnHand();
+  const darienPars=await loadPars('darien');
   const rows = record ? ALL_ITEMS.map(item=>{
     const val=record.counts?.[item.id];
     if(val==null || val==='') return '';
+    const par=darienPars[item.id];
     return `<div class="ProdRow">
       <div class="ProdRow-info">
-        <div class="ProdRow-name">${item.name}</div>
+        <div class="ProdRow-name">${item.name}${par!=null?` <span style="color:#999;font-weight:400;">(Par: ${par})</span>`:''}</div>
         <div class="ProdRow-meta">${item.unit}</div>
       </div>
       <div style="font-size:15px;font-weight:800;color:#1B6B3A;">${val}</div>
