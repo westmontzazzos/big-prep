@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '24.4';
+const APP_VERSION = '24.5';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1254,10 +1254,9 @@ async function showOrderDetail(order, backFn, title){
       addonDelivered+=Number((a.delivered||{})[item.id]||0);
     });
     const ordered=baseOrder+addonQty;
-    if(ordered<=0) return '';
     const pickedUp=Number(delivered[item.id]||0)+addonDelivered;
     const remaining=Math.round(Math.max(ordered-pickedUp,0)*100)/100;
-    const received=remaining<=0;
+    const received=ordered>0 && remaining<=0;
     printItems.push({item, ordered, pickedUp});
     return `<div class="ProdRow" style="${received?'background:#E8F5ED;':''}">
       <div class="ProdRow-info">
@@ -1591,6 +1590,7 @@ async function showDarienOrderStatus(editMode){
   const curWeek=currentWeekNumber();
   const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(5);
   const order=(data||[]).find(r=>weekNumberForDate(new Date(r.started_at))===curWeek);
+  const darienPars=await loadPars('darien');
 
   let latestVerification=null;
   if(order){
@@ -1611,9 +1611,9 @@ async function showDarienOrderStatus(editMode){
       const addonQty=itemAddons.reduce((s,a)=>s+Number((a.items||{})[item.id]||0),0);
       const addonDelivered=itemAddons.reduce((s,a)=>s+Number((a.delivered||{})[item.id]||0),0);
       const total=ordered+addonQty;
-      if(total<=0 && !editMode) return;
+      if(darienPars[item.id]==null) return;
       const pickedUp=Number(delivered[item.id]||0)+addonDelivered;
-      const done=pickedUp>=total;
+      const done=total>0 && pickedUp>=total;
       if(editMode){
         const addonCellContent = itemAddons.length
           ? `<button class="B B-outline" data-addon-detail="${item.id}" style="height:34px;padding:0 8px;font-size:12px;color:#1B6B3A;">${addonQty} (${itemAddons.length}) ✏️</button>`
@@ -1878,11 +1878,10 @@ async function showDarienTracker(){
         addonDelivered+=Number((a.delivered||{})[item.id]||0);
       });
       const ordered=baseOrder+addonQty;
-      if(ordered<=0) return;
       const mainDelivered=Number(delivered[item.id]||0);
       const pickedUp=mainDelivered+addonDelivered;
       const remaining=Math.round(Math.max(ordered-pickedUp,0)*100)/100;
-      const received=remaining<=0;
+      const received=ordered>0 && remaining<=0;
       printItems.push({item, ordered, pickedUp});
       rows+=`<div class="ProdRow" style="${received?'background:#E8F5ED;':''}">
         <div class="ProdRow-info">
@@ -1942,13 +1941,22 @@ async function showActiveOrdersTable(){
         addonDelivered+=Number((a.delivered||{})[item.id]||0);
       });
       const total=sunOrder+addonQty;
-      if(total<=0) return;
+      if(par==null) return;
       sunTotal+=sunOrder; addonTotal+=addonQty; grandTotal+=total;
       const mainDelivered=Number(delivered[item.id]||0);
       const pickedUp=mainDelivered+addonDelivered;
-      const done=pickedUp>=total;
+      const done=total>0 && pickedUp>=total;
       printItems.push({item, ordered:total, pickedUp});
-      if(done){
+      if(total<=0){
+        bodyRows+=`<tr>
+          <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;color:#999;">${par!=null?par:'—'}</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">0</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#1B6B3A;">—</td>
+          <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">0</td>
+          <td style="padding:8px 6px;text-align:center;color:#ccc;">—</td>
+        </tr>`;
+      } else if(done){
         const fmtTs=ts=>ts?new Date(ts).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'';
         const mainTs = mainDelivered>0 ? fmtTs((mainOrder.delivered_at||{})[item.id]) : '';
         const addonTsNote = weekAddons.map(a=>{
