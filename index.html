@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '24.2';
+const APP_VERSION = '24.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -223,6 +223,7 @@ let selectedWeek = null; // which week tab is open on the dashboard
 let currentPars = {};    // par levels for the active location, keyed by item id
 let currentDarienOwed = {}; // Westmont-only: what's currently owed to Darien, keyed by item id
 let currentDarienIsEstimate = false; // true when Darien's real order isn't in yet and we're forecasting from par-minus-on-hand instead
+let currentDarienEstimateItems = {}; // per-item: true if THIS item's number is an estimate (e.g. already delivered, or no order yet)
 let currentDarienOnHand = {}; // Westmont-only: Darien's on-hand for whatever day Westmont is counting
 
 // Whatever day Westmont is actively counting, pull in Darien's on-hand from
@@ -366,6 +367,7 @@ async function getDarienOwedMap(){
 async function getDarienAllocatedMap(){
   if(testMode) return {};
   const allocated={};
+  currentDarienEstimateItems={};
   const {data:latestD}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
 
   // Is that most recent completed order actually FOR the current Darien week
@@ -375,37 +377,48 @@ async function getDarienAllocatedMap(){
   const thisDarienMonday = mondayOf(new Date()).getTime();
   const orderIsCurrent = latestD && latestD.length && mondayOf(new Date(latestD[0].started_at)).getTime()===thisDarienMonday;
 
-  let weekLabel=null;
-  currentDarienIsEstimate = !orderIsCurrent;
+  // Always compute the estimate as a fallback - used either for the whole
+  // map (no current order at all) or per-item (an item that's already been
+  // fully delivered has nothing left owed from the old order, so it should
+  // fall back to the forward-looking estimate instead of double-counting
+  // something already fulfilled).
+  const darienPars=await loadPars('darien');
+  const {data:recentOnHand}=await sb.from('darien_daily_onhand').select('counts').order('date',{ascending:false}).limit(1);
+  const onHand=(recentOnHand && recentOnHand.length) ? (recentOnHand[0].counts||{}) : {};
+  const estimateFor=(itemId)=>{
+    const par=darienPars[itemId];
+    if(par==null) return 0;
+    const has=Number(onHand[itemId]||0);
+    return Math.max(par-has,0);
+  };
+
   if(orderIsCurrent){
-    weekLabel=latestD[0].week_label;
+    const weekLabel=latestD[0].week_label;
+    const delivered=latestD[0].delivered||{};
+    const {data:addons}=await sb.from('darien_addons').select('*').eq('week_label',weekLabel);
+    const weekAddons=addons||[];
     ALL_ITEMS.forEach(item=>{
       const ordered=Number(latestD[0].counts?.[item.id]||0);
-      if(ordered>0) allocated[item.id]=ordered;
+      const addonQty=weekAddons.reduce((s,a)=>s+Number((a.items||{})[item.id]||0),0);
+      const totalOrdered=ordered+addonQty;
+      const mainDelivered=Number(delivered[item.id]||0);
+      const addonDelivered=weekAddons.reduce((s,a)=>s+Number((a.delivered||{})[item.id]||0),0);
+      const totalDelivered=mainDelivered+addonDelivered;
+      const remaining=Math.max(totalOrdered-totalDelivered,0);
+      if(remaining>0){
+        allocated[item.id]=remaining;
+      } else {
+        // Already fully delivered - nothing left owed from this order, fall
+        // back to the estimate for forward planning instead.
+        const est=estimateFor(item.id);
+        if(est>0){ allocated[item.id]=est; currentDarienEstimateItems[item.id]=true; }
+      }
     });
   } else {
-    // Estimate: Par minus Darien's most recent on-hand - the real order
-    // hasn't been placed yet, so this is the best forecast of what they'll
-    // likely need once Sunday's order comes in.
-    const darienPars=await loadPars('darien');
-    const {data:recentOnHand}=await sb.from('darien_daily_onhand').select('counts').order('date',{ascending:false}).limit(1);
-    const onHand=(recentOnHand && recentOnHand.length) ? (recentOnHand[0].counts||{}) : {};
+    currentDarienIsEstimate=true;
     ALL_ITEMS.forEach(item=>{
-      const par=darienPars[item.id];
-      if(par==null) return;
-      const has=Number(onHand[item.id]||0);
-      const estimate=Math.max(par-has,0);
-      if(estimate>0) allocated[item.id]=estimate;
-    });
-  }
-  if(weekLabel){
-    const {data:addons}=await sb.from('darien_addons').select('*').eq('week_label',weekLabel);
-    (addons||[]).forEach(a=>{
-      const items=a.items||{};
-      Object.keys(items).forEach(itemId=>{
-        const requested=Number(items[itemId]||0);
-        if(requested>0) allocated[itemId]=(allocated[itemId]||0)+requested;
-      });
+      const est=estimateFor(item.id);
+      if(est>0){ allocated[item.id]=est; currentDarienEstimateItems[item.id]=true; }
     });
   }
   return allocated;
@@ -968,7 +981,7 @@ async function showDashboard(lk){
       ${lk==='westmont'?'':'<div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Par</div>'}
       <div style="width:54px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Count</div>
       ${showOrderedCol?'<div style="width:54px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">Ordered</div>':''}
-      ${showDarienCols?'<div style="width:50px;font-size:10px;color:#8A6300;font-weight:700;text-transform:uppercase;">− Darien'+(currentDarienIsEstimate?' (est.)':'')+'</div><div style="width:64px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">True</div>':''}
+      ${showDarienCols?'<div style="width:50px;font-size:10px;color:#8A6300;font-weight:700;text-transform:uppercase;">− Darien</div><div style="width:64px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">True</div>':''}
       <div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Avg</div>
     </div>
   </div>`;
@@ -1013,7 +1026,8 @@ async function showDashboard(lk){
       const need=darienNeedMap[item.id];
       if(need!=null && need>0){
         rowHighlight='background:#FFFBF0;';
-        darienCell=`<div style="width:50px;font-size:13px;font-weight:700;color:#8A6300;">${need}</div>`;
+        const isEst=currentDarienEstimateItems[item.id];
+        darienCell=`<div style="width:50px;font-size:13px;font-weight:700;color:#8A6300;">${need}${isEst?'<div style="font-size:8px;font-weight:700;">(est.)</div>':''}</div>`;
         if(countVal!==''){
           const trueCount=Number(countVal)-need;
           const tc=trueCount<0?'#C8102E':'#1B6B3A';
@@ -2694,7 +2708,7 @@ function showCount(){
               data-item="${item.id}" data-cat="${cat.name}" value="${val}" placeholder="0">
           </div>
           ${hasOwed ? `
-          <div class="IG"><label style="color:#8A6300;">− DARIEN${currentDarienIsEstimate?' (est.)':''}</label>
+          <div class="IG"><label style="color:#8A6300;">− DARIEN${currentDarienEstimateItems[item.id]?' (est.)':''}</label>
             <div class="SI-readonly" style="border-color:#8A6300;background:#FFF3D6;color:#8A6300;font-size:18px;" data-owed="${item.id}">${owed}</div>
           </div>
           <div class="IG"><label style="color:${trueColorVal};">TRUE COUNT</label>
