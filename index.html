@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '24.3';
+const APP_VERSION = '24.4';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -389,7 +389,7 @@ async function getDarienAllocatedMap(){
     const par=darienPars[itemId];
     if(par==null) return 0;
     const has=Number(onHand[itemId]||0);
-    return Math.max(par-has,0);
+    return Math.round(Math.max(par-has,0)*100)/100;
   };
 
   if(orderIsCurrent){
@@ -1029,7 +1029,7 @@ async function showDashboard(lk){
         const isEst=currentDarienEstimateItems[item.id];
         darienCell=`<div style="width:50px;font-size:13px;font-weight:700;color:#8A6300;">${need}${isEst?'<div style="font-size:8px;font-weight:700;">(est.)</div>':''}</div>`;
         if(countVal!==''){
-          const trueCount=Number(countVal)-need;
+          const trueCount=Math.round((Number(countVal)-need)*100)/100;
           const tc=trueCount<0?'#C8102E':'#1B6B3A';
           trueCell=`<div style="width:64px;font-size:13px;font-weight:700;color:${tc};">${trueCount}</div>`;
         } else {
@@ -1256,7 +1256,7 @@ async function showOrderDetail(order, backFn, title){
     const ordered=baseOrder+addonQty;
     if(ordered<=0) return '';
     const pickedUp=Number(delivered[item.id]||0)+addonDelivered;
-    const remaining=Math.max(ordered-pickedUp,0);
+    const remaining=Math.round(Math.max(ordered-pickedUp,0)*100)/100;
     const received=remaining<=0;
     printItems.push({item, ordered, pickedUp});
     return `<div class="ProdRow" style="${received?'background:#E8F5ED;':''}">
@@ -1881,7 +1881,7 @@ async function showDarienTracker(){
       if(ordered<=0) return;
       const mainDelivered=Number(delivered[item.id]||0);
       const pickedUp=mainDelivered+addonDelivered;
-      const remaining=Math.max(ordered-pickedUp,0);
+      const remaining=Math.round(Math.max(ordered-pickedUp,0)*100)/100;
       const received=remaining<=0;
       printItems.push({item, ordered, pickedUp});
       rows+=`<div class="ProdRow" style="${received?'background:#E8F5ED;':''}">
@@ -2225,7 +2225,7 @@ async function showDeliveries(){
       const deliveredQty=Number(delivered[item.id]||0);
       if(deliveredQty>0) deliveredLog.push({item, qty:deliveredQty, source:'Weekly Order', date:mainOrder.completed_at, recordType:'main', recordId:mainOrder.id});
       if(need<=0) return;
-      const remaining=Math.max(need-deliveredQty,0);
+      const remaining=Math.round(Math.max(need-deliveredQty,0)*100)/100;
       if(remaining<=0) return;
       mainRows+=deliveryRow(item,remaining,deliveredQty,'main',mainOrder.id);
     });
@@ -2692,7 +2692,7 @@ function showCount(){
 
       const owed = currentDarienOwed[item.id];
       const hasOwed = owed>0;
-      const trueVal = (hasOwed && val!=='') ? Number(val)-owed : null;
+      const trueVal = (hasOwed && val!=='') ? Math.round((Number(val)-owed)*100)/100 : null;
       const trueColorVal = trueVal!=null ? (trueVal<0?'#C8102E':'#1B6B3A') : '#999';
       const darienOnHandVal = currentDarienOnHand[item.id];
       const hasDarienOnHand = darienOnHandVal!=null && darienOnHandVal!=='';
@@ -2857,7 +2857,7 @@ function refreshTrue(itemId){
     el.style.borderColor='#999';
     return;
   }
-  const trueVal=Number(val)-owed;
+  const trueVal=Math.round((Number(val)-owed)*100)/100;
   const color = trueVal<0?'#C8102E':'#1B6B3A';
   el.textContent=trueVal;
   el.style.color=color;
