@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '24.5';
+const APP_VERSION = '25.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -135,6 +135,10 @@ const CATEGORIES = [
   {name:'Sauces', items:[
     {id:'alfredo',name:'Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
     {id:'soup',name:'Soup',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'frozen_alfredo',name:'Frozen Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'marinara',name:'Marinara',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'gravy',name:'Gravy',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'chili',name:'Chili',unit:'bag', mult:1, baseUnit:'ct', containerLabel:'bag'},
   ]},
   {name:'Pasta', items:[
     {id:'lasagna',name:'Lasagna',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
@@ -158,6 +162,9 @@ const CATEGORIES = [
     {id:'pizza_cheese',name:'Cheese Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
     {id:'pizza_sausage',name:'Sausage Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
     {id:'pizza_pepperoni',name:'Pepperoni Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+  ]},
+  {name:'Appetizers', items:[
+    {id:'calamari',name:'Calamari',unit:'box', mult:1, baseUnit:'ct', containerLabel:'box'},
   ]},
 ];
 const ALL_ITEMS = CATEGORIES.flatMap(c=>c.items);
