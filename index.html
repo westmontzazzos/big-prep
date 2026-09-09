@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '25.0';
+const APP_VERSION = '25.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1988,7 +1988,7 @@ async function showActiveOrdersTable(){
           <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">${sunOrder||'—'}</td>
           <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
           <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">${total}</td>
-          <td style="padding:8px 6px;text-align:center;"><button class="B B-outline" data-mark-picked="${item.id}" style="height:32px;padding:0 8px;font-size:14px;">⬜</button></td>
+          <td style="padding:8px 6px;text-align:center;"><button class="B B-outline" data-mark-picked="${item.id}" data-mp-total="${total}" style="height:32px;padding:0 8px;font-size:14px;">⬜</button></td>
         </tr>`;
       }
     });
@@ -2051,46 +2051,77 @@ async function showActiveOrdersTable(){
           <tbody>${pickedUpRows}</tbody>
         </table>
       </div>` : ''}
+      ${bodyRows ? `<button class="B B-red" id="bConfirmSelected" style="width:100%;justify-content:center;height:48px;margin-top:16px;" disabled>✅ Confirm Selected (0)</button>` : ''}
     </div>`;
 
   document.getElementById('bActiveBack').onclick=()=>showOrdersMenu();
   document.getElementById('bActivePrint').onclick=()=>printTrackerSheet('DARIEN ORDER', mainOrder?mainOrder.week_label:'', printItems);
+  const selectedItems=new Set();
+  const confirmBtn=document.getElementById('bConfirmSelected');
+  function refreshConfirmBtn(){
+    if(!confirmBtn) return;
+    confirmBtn.textContent=`✅ Confirm Selected (${selectedItems.size})`;
+    confirmBtn.disabled=selectedItems.size===0;
+    confirmBtn.style.opacity=selectedItems.size===0?'0.5':'1';
+  }
   if(mainOrder){
     document.querySelectorAll('[data-mark-picked]').forEach(btn=>{
-      btn.onclick=async ()=>{
+      btn.onclick=()=>{
         const itemId=btn.dataset.markPicked;
-        const sunOrder=Number(mainOrder.counts?.[itemId]||0);
-        showModal('Mark picked up?','Confirm the full amount ('+sunOrder+' from Sunday\'s order'+(weekAddons.some(a=>Number((a.items||{})[itemId]||0)>0)?' plus any add-on':'')+') has been picked up.',[
-          {l:'Cancel',c:'B-outline',fn:closeModal},
-          {l:'Confirm',c:'B-red',fn:async ()=>{
-            closeModal();
-            showLoading();
-            const nowTs=new Date().toISOString();
-            const {data:row}=await sb.from(TABLE).select('delivered,delivered_at').eq('id',mainOrder.id).single();
-            const delivered={...(row?.delivered||{})};
-            const deliveredAt={...(row?.delivered_at||{})};
-            delivered[itemId]=sunOrder;
-            deliveredAt[itemId]=nowTs;
-            await sb.from(TABLE).update({delivered, delivered_at:deliveredAt}).eq('id',mainOrder.id);
-            for(const a of weekAddons){
-              const q=Number((a.items||{})[itemId]||0);
-              if(q>0){
-                const {data:arow}=await sb.from('darien_addons').select('items,delivered,delivered_at').eq('id',a.id).single();
-                const adel={...(arow?.delivered||{})};
-                const adelAt={...(arow?.delivered_at||{})};
-                adel[itemId]=q;
-                adelAt[itemId]=nowTs;
-                const allDone=Object.keys(arow?.items||{}).every(k=>Number(adel[k]||0)>=Number(arow.items[k]||0));
-                await sb.from('darien_addons').update({delivered:adel, delivered_at:adelAt, status:allDone?'fulfilled':'open'}).eq('id',a.id);
-              }
-            }
-            const itemName=ITEM_BY_ID[itemId]?.name||itemId;
-            await logActivity(mainOrder.id, mainOrder.week_label, 'picked_up', `${itemName} marked picked up by Westmont (${sunOrder+weekAddons.reduce((s,a)=>s+Number((a.items||{})[itemId]||0),0)} total)`);
-            showActiveOrdersTable();
-          }},
-        ]);
+        if(selectedItems.has(itemId)){
+          selectedItems.delete(itemId);
+          btn.textContent='⬜';
+          btn.classList.remove('B-red');
+        } else {
+          selectedItems.add(itemId);
+          btn.textContent='✅';
+          btn.classList.add('B-red');
+        }
+        refreshConfirmBtn();
       };
     });
+    if(confirmBtn) confirmBtn.onclick=()=>{
+      if(selectedItems.size===0) return;
+      const names=[...selectedItems].map(id=>ITEM_BY_ID[id]?.name||id).join(', ');
+      showModal('Confirm picked up?', `Mark ${selectedItems.size} item${selectedItems.size!==1?'s':''} as fully picked up: ${names}`, [
+        {l:'Cancel',c:'B-outline',fn:closeModal},
+        {l:'Confirm',c:'B-red',fn:async ()=>{
+          closeModal();
+          showLoading();
+          const nowTs=new Date().toISOString();
+          const {data:row}=await sb.from(TABLE).select('delivered,delivered_at').eq('id',mainOrder.id).single();
+          const delivered={...(row?.delivered||{})};
+          const deliveredAt={...(row?.delivered_at||{})};
+          for(const itemId of selectedItems){
+            const sunOrder=Number(mainOrder.counts?.[itemId]||0);
+            delivered[itemId]=sunOrder;
+            deliveredAt[itemId]=nowTs;
+          }
+          await sb.from(TABLE).update({delivered, delivered_at:deliveredAt}).eq('id',mainOrder.id);
+          for(const a of weekAddons){
+            let changed=false;
+            const {data:arow}=await sb.from('darien_addons').select('items,delivered,delivered_at').eq('id',a.id).single();
+            const adel={...(arow?.delivered||{})};
+            const adelAt={...(arow?.delivered_at||{})};
+            for(const itemId of selectedItems){
+              const q=Number((a.items||{})[itemId]||0);
+              if(q>0){ adel[itemId]=q; adelAt[itemId]=nowTs; changed=true; }
+            }
+            if(changed){
+              const allDone=Object.keys(arow?.items||{}).every(k=>Number(adel[k]||0)>=Number(arow.items[k]||0));
+              await sb.from('darien_addons').update({delivered:adel, delivered_at:adelAt, status:allDone?'fulfilled':'open'}).eq('id',a.id);
+            }
+          }
+          for(const itemId of selectedItems){
+            const itemName=ITEM_BY_ID[itemId]?.name||itemId;
+            const sunOrder=Number(mainOrder.counts?.[itemId]||0);
+            const addonQty=weekAddons.reduce((s,a)=>s+Number((a.items||{})[itemId]||0),0);
+            await logActivity(mainOrder.id, mainOrder.week_label, 'picked_up', `${itemName} marked picked up by Westmont (${sunOrder+addonQty} total)`);
+          }
+          showActiveOrdersTable();
+        }},
+      ]);
+    };
   }
 }
 
