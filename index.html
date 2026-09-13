@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '25.1';
+const APP_VERSION = '25.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1979,7 +1979,10 @@ async function showActiveOrdersTable(){
           <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">${sunOrder||'—'}</td>
           <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
           <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">${total}</td>
-          <td style="padding:8px 6px;text-align:center;font-size:15px;">✅</td>
+          <td style="padding:8px 6px;text-align:center;">
+            <div style="font-size:15px;">✅</div>
+            <button class="B B-outline" data-undo-pickup="${item.id}" style="height:24px;padding:0 6px;font-size:10px;color:#C8102E;border-color:#C8102E;margin-top:4px;">↩️ Undo</button>
+          </td>
         </tr>`;
       } else {
         bodyRows+=`<tr>
@@ -2056,6 +2059,39 @@ async function showActiveOrdersTable(){
 
   document.getElementById('bActiveBack').onclick=()=>showOrdersMenu();
   document.getElementById('bActivePrint').onclick=()=>printTrackerSheet('DARIEN ORDER', mainOrder?mainOrder.week_label:'', printItems);
+  if(mainOrder){
+    document.querySelectorAll('[data-undo-pickup]').forEach(btn=>{
+      btn.onclick=()=>{
+        const itemId=btn.dataset.undoPickup;
+        const itemName=ITEM_BY_ID[itemId]?.name||itemId;
+        showModal('Undo pickup?', `Move ${itemName} back to outstanding — this reverses marking it as picked up.`, [
+          {l:'Cancel',c:'B-outline',fn:closeModal},
+          {l:'Undo',c:'B-red',fn:async ()=>{
+            closeModal();
+            showLoading();
+            const {data:row}=await sb.from(TABLE).select('delivered,delivered_at').eq('id',mainOrder.id).single();
+            const delivered={...(row?.delivered||{})};
+            const deliveredAt={...(row?.delivered_at||{})};
+            delivered[itemId]=0;
+            delete deliveredAt[itemId];
+            await sb.from(TABLE).update({delivered, delivered_at:deliveredAt}).eq('id',mainOrder.id);
+            for(const a of weekAddons){
+              if(Number((a.items||{})[itemId]||0)>0){
+                const {data:arow}=await sb.from('darien_addons').select('items,delivered,delivered_at').eq('id',a.id).single();
+                const adel={...(arow?.delivered||{})};
+                const adelAt={...(arow?.delivered_at||{})};
+                adel[itemId]=0;
+                delete adelAt[itemId];
+                await sb.from('darien_addons').update({delivered:adel, delivered_at:adelAt, status:'open'}).eq('id',a.id);
+              }
+            }
+            await logActivity(mainOrder.id, mainOrder.week_label, 'picked_up', `${itemName}'s pickup was undone by Westmont`);
+            showActiveOrdersTable();
+          }},
+        ]);
+      };
+    });
+  }
   const selectedItems=new Set();
   const confirmBtn=document.getElementById('bConfirmSelected');
   function refreshConfirmBtn(){
