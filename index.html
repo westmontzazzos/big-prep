@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '25.2';
+const APP_VERSION = '25.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -541,21 +541,23 @@ async function openLocation(lk){
 }
 
 // ─── WESTMONT'S SIMPLE MENU (Active Order / Past Orders / Counts) ───────────
-function showWestmontMenu(){
+async function showWestmontMenu(){
   activeLoc='westmont';
+  const pendingDarien = await getPendingDarienOrders();
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">W</div>
       <div class="H-right"><button class="B B-ghost" id="bMenuHome">🏠 Home</button></div>
     </header>
     <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
+      ${pendingDarien.length ? `<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;text-align:center;">🔔 Darien has ${pendingDarien.length} order${pendingDarien.length!==1?'s':''} awaiting review — go to Orders → Active Orders</div>` : ''}
       <div class="MenuTile primary" id="bMenuCounts">
         <div class="MenuTile-emoji">🔢</div>
         <div><div class="MenuTile-title">Counts</div><div class="MenuTile-sub">Westmont's production + Darien's on-hand</div></div>
       </div>
       <div class="MenuTile" id="bMenuOrders">
         <div class="MenuTile-emoji">📦</div>
-        <div><div class="MenuTile-title">Orders</div><div class="MenuTile-sub">Active order and order history</div></div>
+        <div><div class="MenuTile-title">Orders${pendingDarien.length?' 🔴':''}</div><div class="MenuTile-sub">Active order and order history</div></div>
       </div>
       <div class="MenuTile" id="bMenuLog">
         <div class="MenuTile-emoji">📜</div>
@@ -2008,6 +2010,13 @@ async function showActiveOrdersTable(){
       ? `<div style="background:#E8F5ED;color:#1B6B3A;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:12px;">✅ Darien verified this order as correct on ${new Date(latestVerification.verified_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}${latestVerification.verified_by?' by '+latestVerification.verified_by:''}</div>`
       : '';
 
+  const ackBanner = (mainOrder && !mainOrder.acknowledged)
+    ? `<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <span>🔔 This order hasn't been acknowledged yet</span>
+        <button class="B B-red" id="bAckOrder" style="height:32px;padding:0 12px;font-size:11px;flex-shrink:0;">✅ Acknowledge</button>
+      </div>`
+    : '';
+
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">Active Orders</div>
@@ -2018,6 +2027,7 @@ async function showActiveOrdersTable(){
     </header>
     <div class="Page" style="padding-top:12px;">
       ${mainOrder ? `<div style="font-size:12px;color:#777;margin-bottom:10px;">${mainOrder.week_label}</div>` : ''}
+      ${ackBanner}
       ${discrepancyBanner}
       <div class="LocBlock" style="overflow-x:auto;margin-bottom:20px;">
         ${mainOrder ? `<table style="width:100%;border-collapse:collapse;">
@@ -2059,6 +2069,14 @@ async function showActiveOrdersTable(){
 
   document.getElementById('bActiveBack').onclick=()=>showOrdersMenu();
   document.getElementById('bActivePrint').onclick=()=>printTrackerSheet('DARIEN ORDER', mainOrder?mainOrder.week_label:'', printItems);
+  if(document.getElementById('bAckOrder')){
+    document.getElementById('bAckOrder').onclick=async ()=>{
+      showLoading();
+      await sb.from(TABLE).update({acknowledged:true, acknowledged_at:new Date().toISOString()}).eq('id',mainOrder.id);
+      await logActivity(mainOrder.id, mainOrder.week_label, 'acknowledged', 'Order viewed and acknowledged by Westmont');
+      showActiveOrdersTable();
+    };
+  }
   if(mainOrder){
     document.querySelectorAll('[data-undo-pickup]').forEach(btn=>{
       btn.onclick=()=>{
