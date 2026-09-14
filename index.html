@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '25.3';
+const APP_VERSION = '25.4';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1504,7 +1504,7 @@ async function showDailyOnHandView(){
 // ─── ADD-ON ORDERS (Darien side) ─────────────────────────────────────────────
 // A lightweight, direct-quantity request that can be submitted any time
 // during the week, separate from the standard weekly On Hand → Need order.
-function showAddOnForm(existing, onDone){
+function showAddOnForm(existing, onDone, phonedIn){
   onDone = onDone || (()=>showDarienMenu());
   const weekLbl = existing ? existing.week_label : 'Week of '+targetMondayForDarienOrder(new Date()).toLocaleDateString('en-US',{month:'short',day:'numeric'});
   const existingItems = existing ? (existing.items||{}) : {};
@@ -1525,13 +1525,14 @@ function showAddOnForm(existing, onDone){
 
   app.innerHTML = `
     <header class="H no-print">
-      <div class="H-logo">${existing?'Edit Add-On':'Add-On Order'}</div>
+      <div class="H-logo">${existing?'Edit Add-On':(phonedIn?'Phoned-In Add-On':'Add-On Order')}</div>
       <div class="H-right"><button class="B B-ghost" id="bAddOnCancel">← Cancel</button></div>
     </header>
     <div class="Page" style="padding-top:12px;">
+      ${phonedIn ? `<div style="background:#F0F7F2;color:#1B6B3A;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:14px;">📞 Recording something Darien called in — enter who at Darien requested it below.</div>` : ''}
       <div class="Modal-field" style="margin-bottom:16px;">
-        <label>Requested by</label>
-        <input id="addonName" placeholder="Your name" value="${existing?(existing.requested_by||'').replace(/"/g,'&quot;'):''}">
+        <label>${phonedIn?'Who at Darien requested this':'Requested by'}</label>
+        <input id="addonName" placeholder="Name" value="${existing?(existing.requested_by||'').replace(/"/g,'&quot;'):''}">
       </div>
       <div style="font-size:12px;color:#777;margin-bottom:14px;">Only enter quantities for what's actually needed extra this week — leave everything else blank.</div>
       ${rows}
@@ -1563,7 +1564,7 @@ function showAddOnForm(existing, onDone){
       await logActivity(logOrderId, weekLbl, 'addon_edited', `Add-on edited by ${name}: ${itemsSummary}`, name);
     } else {
       await sb.from('darien_addons').insert({week_label:weekLbl, requested_by:name, items, delivered:{}, status:'open'});
-      await logActivity(logOrderId, weekLbl, 'addon_submitted', `Add-on submitted by ${name}: ${itemsSummary}`, name);
+      await logActivity(logOrderId, weekLbl, 'addon_submitted', phonedIn ? `${name} called in an add-on, recorded by Westmont: ${itemsSummary}` : `Add-on submitted by ${name}: ${itemsSummary}`, name);
     }
     onDone();
   };
@@ -2065,10 +2066,14 @@ async function showActiveOrdersTable(){
         </table>
       </div>` : ''}
       ${bodyRows ? `<button class="B B-red" id="bConfirmSelected" style="width:100%;justify-content:center;height:48px;margin-top:16px;" disabled>✅ Confirm Selected (0)</button>` : ''}
+      ${mainOrder ? `<button class="B B-outline" id="bPhonedInAddOn" style="width:100%;justify-content:center;height:48px;margin-top:10px;">📞 Add Something Darien Called In</button>` : ''}
     </div>`;
 
   document.getElementById('bActiveBack').onclick=()=>showOrdersMenu();
   document.getElementById('bActivePrint').onclick=()=>printTrackerSheet('DARIEN ORDER', mainOrder?mainOrder.week_label:'', printItems);
+  if(document.getElementById('bPhonedInAddOn')){
+    document.getElementById('bPhonedInAddOn').onclick=()=>showAddOnForm(null, ()=>showActiveOrdersTable(), true);
+  }
   if(document.getElementById('bAckOrder')){
     document.getElementById('bAckOrder').onclick=async ()=>{
       showLoading();
