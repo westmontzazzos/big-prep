@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '25.4';
+const APP_VERSION = '25.5';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -968,6 +968,43 @@ async function showDashboard(lk){
     averages[item.id]=vals.reduce((a,b)=>a+b,0)/vals.length;
   });
 
+  // Usage = what we had at the START of the week minus what's left at the
+  // END of the week - i.e. the previous count minus this week's count.
+  // Walk the FULL chronological history (not just the last 6) so the usage
+  // average reflects everything logged, going into busy season.
+  const chronological=sessions.filter(s=>s.status==='completed').sort((a,b)=>new Date(a.completed_at||a.started_at)-new Date(b.completed_at||b.started_at));
+  const usageHistory={}; // item.id -> array of week-over-week usage values
+  ALL_ITEMS.forEach(item=>{ usageHistory[item.id]=[]; });
+  for(let i=1;i<chronological.length;i++){
+    ALL_ITEMS.forEach(item=>{
+      const prevRaw=chronological[i-1].counts?.[item.id];
+      const thisRaw=chronological[i].counts?.[item.id];
+      if(prevRaw==null || prevRaw==='' || thisRaw==null || thisRaw==='') return;
+      const usage=Math.round((Number(prevRaw)-Number(thisRaw))*100)/100;
+      usageHistory[item.id].push(usage);
+    });
+  }
+  const usageAvg={};
+  ALL_ITEMS.forEach(item=>{
+    const h=usageHistory[item.id];
+    usageAvg[item.id]=h.length ? Math.round((h.reduce((a,b)=>a+b,0)/h.length)*100)/100 : null;
+  });
+  // This week's specific usage: the completed session right before the
+  // currently selected one, chronologically - not necessarily "week - 1"
+  // numerically, in case of gaps or twice-a-week counts.
+  const currentUsage={};
+  if(activeSession && activeSession.status==='completed'){
+    const idx=chronological.findIndex(s=>s.id===activeSession.id);
+    if(idx>0){
+      ALL_ITEMS.forEach(item=>{
+        const prevRaw=chronological[idx-1].counts?.[item.id];
+        const thisRaw=activeSession.counts?.[item.id];
+        if(prevRaw==null || prevRaw==='' || thisRaw==null || thisRaw==='') return;
+        currentUsage[item.id]=Math.round((Number(prevRaw)-Number(thisRaw))*100)/100;
+      });
+    }
+  }
+
   const maxDataWeek = sessions.length ? Math.max(...sessions.map(s=>weekNumberForDate(new Date(s.completed_at||s.started_at)))) : curWeek;
   const lastTab = Math.max(curWeek+1, maxDataWeek); // always show at least one week ahead
   const weekTabs=[];
@@ -991,6 +1028,7 @@ async function showDashboard(lk){
       <div style="width:54px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Count</div>
       ${showOrderedCol?'<div style="width:54px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">Ordered</div>':''}
       ${showDarienCols?'<div style="width:50px;font-size:10px;color:#8A6300;font-weight:700;text-transform:uppercase;">− Darien</div><div style="width:64px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">True</div>':''}
+      ${lk==='westmont'?'<div style="width:50px;font-size:10px;color:#555;font-weight:700;text-transform:uppercase;">Usage</div>':''}
       <div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Avg</div>
     </div>
   </div>`;
@@ -999,6 +1037,10 @@ async function showDashboard(lk){
     const countVal = activeSession ? (activeSession.counts?.[item.id] ?? '') : '';
     const countTxt = countVal!=='' ? countVal : '—';
     const avgTxt = averages[item.id]!=null ? averages[item.id].toFixed(1) : '—';
+    const usageVal = currentUsage[item.id];
+    const usageAvgVal = usageAvg[item.id];
+    const usageColor = usageVal==null ? '#999' : (usageVal<0 ? '#C8102E' : '#555');
+    const usageTxt = usageVal!=null ? usageVal : '—';
     const parTxt = pars[item.id]!=null ? pars[item.id] : '—';
     const inProgTag = activeSession && activeSession.status==='in_progress' ? ' <span style="color:#C8102E;font-weight:700;">(in progress)</span>' : '';
 
@@ -1060,6 +1102,7 @@ async function showDashboard(lk){
         <div style="width:54px;font-size:13px;font-weight:700;color:#111;">${countTxt}${inProgTag}</div>
         ${orderedCell}
         ${darienCell}${trueCell}
+        ${lk==='westmont'?`<div style="width:50px;font-size:13px;font-weight:700;color:${usageColor};">${usageTxt}${usageAvgVal!=null?`<div style="font-size:9px;font-weight:400;color:#999;">avg ${usageAvgVal}</div>`:''}</div>`:''}
         <div style="width:44px;font-size:13px;font-weight:700;color:#C8102E;">${avgTxt}</div>
       </div>
     </div>`;
