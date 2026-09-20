@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '25.5';
+const APP_VERSION = '25.6';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -989,6 +989,13 @@ async function showDashboard(lk){
     const h=usageHistory[item.id];
     usageAvg[item.id]=h.length ? Math.round((h.reduce((a,b)=>a+b,0)/h.length)*100)/100 : null;
   });
+  const maxDataWeek = sessions.length ? Math.max(...sessions.map(s=>weekNumberForDate(new Date(s.completed_at||s.started_at)))) : curWeek;
+  const lastTab = Math.max(curWeek+1, maxDataWeek); // always show at least one week ahead
+  const weekTabs=[];
+  for(let w=1; w<=lastTab; w++) weekTabs.push(w);
+
+  const activeSession=weekMap[selectedWeek];
+
   // This week's specific usage: the completed session right before the
   // currently selected one, chronologically - not necessarily "week - 1"
   // numerically, in case of gaps or twice-a-week counts.
@@ -1004,13 +1011,6 @@ async function showDashboard(lk){
       });
     }
   }
-
-  const maxDataWeek = sessions.length ? Math.max(...sessions.map(s=>weekNumberForDate(new Date(s.completed_at||s.started_at)))) : curWeek;
-  const lastTab = Math.max(curWeek+1, maxDataWeek); // always show at least one week ahead
-  const weekTabs=[];
-  for(let w=1; w<=lastTab; w++) weekTabs.push(w);
-
-  const activeSession=weekMap[selectedWeek];
 
   const showDarienCols = lk==='westmont' && selectedWeek===curWeek;
   const showOrderedCol = lk==='darien' && selectedWeek===curWeek && activeSession;
