@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '25.6';
+const APP_VERSION = '25.7';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -980,7 +980,7 @@ async function showDashboard(lk){
       const prevRaw=chronological[i-1].counts?.[item.id];
       const thisRaw=chronological[i].counts?.[item.id];
       if(prevRaw==null || prevRaw==='' || thisRaw==null || thisRaw==='') return;
-      const usage=Math.round((Number(prevRaw)-Number(thisRaw))*100)/100;
+      const usage=Math.max(Math.round((Number(prevRaw)-Number(thisRaw))*100)/100, 0);
       usageHistory[item.id].push(usage);
     });
   }
@@ -1007,7 +1007,7 @@ async function showDashboard(lk){
         const prevRaw=chronological[idx-1].counts?.[item.id];
         const thisRaw=activeSession.counts?.[item.id];
         if(prevRaw==null || prevRaw==='' || thisRaw==null || thisRaw==='') return;
-        currentUsage[item.id]=Math.round((Number(prevRaw)-Number(thisRaw))*100)/100;
+        currentUsage[item.id]=Math.max(Math.round((Number(prevRaw)-Number(thisRaw))*100)/100, 0);
       });
     }
   }
@@ -1039,7 +1039,7 @@ async function showDashboard(lk){
     const avgTxt = averages[item.id]!=null ? averages[item.id].toFixed(1) : '—';
     const usageVal = currentUsage[item.id];
     const usageAvgVal = usageAvg[item.id];
-    const usageColor = usageVal==null ? '#999' : (usageVal<0 ? '#C8102E' : '#555');
+    const usageColor = usageVal==null ? '#999' : '#555';
     const usageTxt = usageVal!=null ? usageVal : '—';
     const parTxt = pars[item.id]!=null ? pars[item.id] : '—';
     const inProgTag = activeSession && activeSession.status==='in_progress' ? ' <span style="color:#C8102E;font-weight:700;">(in progress)</span>' : '';
