@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '25.7';
+const APP_VERSION = '26.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -179,21 +179,20 @@ const LOCATIONS = {
 // Week 1 = the Monday–Sunday of our first real data (Jul 6–12, 2026).
 // Both locations share this same numbering so "Week 3" means the same
 // calendar week on both sides, even if one side has no data for it yet.
-const WEEK1_START = new Date(2026, 6, 4); // July 4, 2026 (a Saturday), in LOCAL time — must match
+const WEEK1_START = new Date(2026, 6, 5); // July 5, 2026 (a Sunday), in LOCAL time — must match
 // the local-time arithmetic used everywhere else (mondayOf, getDay, setDate, etc.)
 // A UTC-anchored epoch here would shift every week boundary back a day for anyone
 // in a negative UTC offset timezone (e.g. US) once formatted/compared locally.
-// Weeks run Saturday through Friday (Westmont counts Saturday and Wednesday,
-// closes out the week on Friday, and starts fresh the next Saturday).
+// Weeks run Sunday through Saturday.
 const MS_PER_WEEK = 7*24*60*60*1000;
 function weekNumberForDate(d){
   return Math.floor((d.getTime()-WEEK1_START.getTime())/MS_PER_WEEK)+1;
 }
 function weekRangeLabel(n){
-  const sat=new Date(WEEK1_START.getTime()+(n-1)*MS_PER_WEEK);
-  const fri=new Date(sat.getTime()+6*24*60*60*1000);
+  const sun=new Date(WEEK1_START.getTime()+(n-1)*MS_PER_WEEK);
+  const sat=new Date(sun.getTime()+6*24*60*60*1000);
   const fmt=d=>d.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-  return fmt(sat)+' – '+fmt(fri);
+  return fmt(sun)+' – '+fmt(sat);
 }
 function currentWeekNumber(){ return weekNumberForDate(new Date()); }
 
