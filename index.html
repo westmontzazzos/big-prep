@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '26.0';
+const APP_VERSION = '26.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -540,9 +540,42 @@ async function openLocation(lk){
 }
 
 // ─── WESTMONT'S SIMPLE MENU (Active Order / Past Orders / Counts) ───────────
+// Checks whether the Wednesday and/or Saturday count is missing for a given
+// week, once that day has actually passed. Weeks run Sunday-Saturday, so the
+// Saturday count is the one that closes out the week.
+async function getMissedCountsForWeek(weekSunday, today){
+  const wedDate=new Date(weekSunday); wedDate.setDate(weekSunday.getDate()+3);
+  const satDate=new Date(weekSunday); satDate.setDate(weekSunday.getDate()+6);
+  const weekLabel='Week of '+weekSunday.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+  const rangeEnd=new Date(satDate.getTime()+24*60*60*1000);
+  const {data}=await sb.from(TABLE).select('counter_name,started_at,status').eq('location','westmont').eq('status','completed').gte('started_at',weekSunday.toISOString()).lte('started_at',rangeEnd.toISOString());
+  const sessions=data||[];
+  const hasWed=sessions.some(s=>(s.counter_name||'').includes('Wednesday'));
+  const hasSat=sessions.some(s=>(s.counter_name||'').includes('Saturday'));
+  const missed=[];
+  if(today>=wedDate && !hasWed) missed.push({day:'Wednesday', weekLabel});
+  if(today>=satDate && !hasSat) missed.push({day:'Saturday', weekLabel});
+  return missed;
+}
+
+// Checks both the week that JUST ended and the current week in progress -
+// otherwise, the moment Sunday rolls over into a new week, a missed
+// Saturday count from the week that just closed would never get flagged.
+async function getMissedCounts(){
+  const today=new Date(); today.setHours(0,0,0,0);
+  const dow=today.getDay(); // 0=Sun...6=Sat
+  const thisWeekSunday=new Date(today); thisWeekSunday.setDate(today.getDate()-dow);
+  const lastWeekSunday=new Date(thisWeekSunday); lastWeekSunday.setDate(thisWeekSunday.getDate()-7);
+
+  const lastWeekMissed = await getMissedCountsForWeek(lastWeekSunday, today);
+  const thisWeekMissed = await getMissedCountsForWeek(thisWeekSunday, today);
+  return [...lastWeekMissed, ...thisWeekMissed];
+}
+
 async function showWestmontMenu(){
   activeLoc='westmont';
   const pendingDarien = await getPendingDarienOrders();
+  const missedCounts = await getMissedCounts();
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">W</div>
@@ -568,6 +601,14 @@ async function showWestmontMenu(){
   document.getElementById('bMenuCounts').onclick=()=>showCountsMenu();
   document.getElementById('bMenuLog').onclick=()=>showLogMenu();
   document.getElementById('bMenuOrders').onclick=()=>showOrdersMenu();
+
+  if(missedCounts.length){
+    const lines=missedCounts.map(m=>`${m.day}'s count not completed (${m.weekLabel})`).join('<br>');
+    showModal('Missed Count', lines, missedCounts.map(m=>({
+      l:`Add ${m.day}'s Count Now`, c:'B-red',
+      fn: async ()=>{ closeModal(); await startFreshCount('westmont', m.weekLabel, m.day); }
+    })).concat([{l:'Dismiss',c:'B-outline',fn:closeModal}]));
+  }
 }
 
 // ─── COUNTS SUB-MENU (Westmont / Darien) ────────────────────────────────────
