@@ -125,31 +125,24 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '26.2';
+const APP_VERSION = '26.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
 // containerLabel = what you're actually counting (bucket/bag/etc) — used for
 // display, so it never has to be guessed out of the `unit` description text
 const CATEGORIES = [
-  {name:'Sauces', items:[
-    {id:'alfredo',name:'Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
-    {id:'soup',name:'Soup',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
-    {id:'frozen_alfredo',name:'Frozen Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
-    {id:'marinara',name:'Marinara',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
-    {id:'gravy',name:'Gravy',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
-    {id:'chili',name:'Chili',unit:'bag', mult:1, baseUnit:'ct', containerLabel:'bag'},
-  ]},
-  {name:'Pasta', items:[
-    {id:'lasagna',name:'Lasagna',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+  {name:'Appetizers', items:[
+    {id:'calamari',name:'Calamari',unit:'box', mult:1, baseUnit:'ct', containerLabel:'box'},
   ]},
   {name:'Beef', items:[
     {id:'ground_beef',name:'Ground Beef',unit:'5 lb bag', mult:5, baseUnit:'lb', containerLabel:'bag'},
     {id:'sliced_beef',name:'Sliced Beef',unit:'5 lb bag', mult:5, baseUnit:'lb', containerLabel:'bag'},
   ]},
-  {name:'Sausage & Meatballs', items:[
-    {id:'sausage_links',name:'Sausage Links',unit:'bag of 7', mult:7, baseUnit:'ct', containerLabel:'bag'},
-    {id:'meatballs',name:'Meatballs',unit:'bag of 8', mult:8, baseUnit:'ct', containerLabel:'bag'},
+  {name:'Frozen Pizza', items:[
+    {id:'pizza_cheese',name:'Cheese Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_sausage',name:'Sausage Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_pepperoni',name:'Pepperoni Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
   ]},
   {name:'Meat and Chicken', items:[
     {id:'chicken_parm',name:'Chicken Parm',unit:'bag of 18', mult:18, baseUnit:'ct', containerLabel:'bag'},
@@ -158,13 +151,20 @@ const CATEGORIES = [
     {id:'ribs',name:'Ribs',unit:'half slab', mult:1, baseUnit:'ct', containerLabel:'half slab'},
     {id:'chicken_wings',name:'Chicken Wings',unit:'bucket (16 bags of 12)', mult:192, baseUnit:'ct', containerLabel:'bucket'},
   ]},
-  {name:'Frozen Pizza', items:[
-    {id:'pizza_cheese',name:'Cheese Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
-    {id:'pizza_sausage',name:'Sausage Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
-    {id:'pizza_pepperoni',name:'Pepperoni Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+  {name:'Pasta', items:[
+    {id:'lasagna',name:'Lasagna',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
   ]},
-  {name:'Appetizers', items:[
-    {id:'calamari',name:'Calamari',unit:'box', mult:1, baseUnit:'ct', containerLabel:'box'},
+  {name:'Sauces', items:[
+    {id:'alfredo',name:'Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'soup',name:'Soup',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'frozen_alfredo',name:'Frozen Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'marinara',name:'Marinara',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'gravy',name:'Gravy',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
+    {id:'chili',name:'Chili',unit:'bag', mult:1, baseUnit:'ct', containerLabel:'bag'},
+  ]},
+  {name:'Sausage & Meatballs', items:[
+    {id:'sausage_links',name:'Sausage Links',unit:'bag of 7', mult:7, baseUnit:'ct', containerLabel:'bag'},
+    {id:'meatballs',name:'Meatballs',unit:'bag of 8', mult:8, baseUnit:'ct', containerLabel:'bag'},
   ]},
 ];
 const ALL_ITEMS = CATEGORIES.flatMap(c=>c.items);
