@@ -65,8 +65,8 @@
     /* ITEMS */
     .ProdRow{display:flex;align-items:center;padding:9px 16px;border-bottom:1px solid #F5F5F5;gap:10px;}
     .ProdRow:last-child{border-bottom:none;}
-    .ProdRow-info{flex:1;min-width:0;}
-    .ProdRow-name{font-size:13px;font-weight:600;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .ProdRow-info{flex:1;min-width:90px;}
+    .ProdRow-name{font-size:13px;font-weight:600;color:#111;white-space:normal;line-height:1.25;overflow-wrap:break-word;}
     .ProdRow-meta{font-size:11px;color:#777;margin-top:1px;}
     .ProdRow-total{color:#1B6B3A;font-weight:700;}
 
@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '26.3';
+const APP_VERSION = '26.4';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1063,13 +1063,13 @@ async function showDashboard(lk){
 
   const headerRow = `<div class="ProdRow" style="background:#F7F7F7;">
     <div class="ProdRow-info"><div style="font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Item</div></div>
-    <div style="display:flex;gap:14px;align-items:center;text-align:center;flex-shrink:0;">
-      ${lk==='westmont'?'':'<div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Par</div>'}
-      <div style="width:54px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Count</div>
-      ${showOrderedCol?'<div style="width:54px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">Ordered</div>':''}
-      ${showDarienCols?'<div style="width:50px;font-size:10px;color:#8A6300;font-weight:700;text-transform:uppercase;">− Darien</div><div style="width:64px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">True</div>':''}
-      ${lk==='westmont'?'<div style="width:50px;font-size:10px;color:#555;font-weight:700;text-transform:uppercase;">Usage</div>':''}
-      <div style="width:44px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Avg</div>
+    <div style="display:flex;gap:6px;align-items:center;text-align:center;flex-shrink:0;">
+      ${lk==='westmont'?'':'<div style="width:34px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Par</div>'}
+      <div style="width:40px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Count</div>
+      ${showOrderedCol?'<div style="width:40px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">Ord</div>':''}
+      ${showDarienCols?'<div style="width:38px;font-size:10px;color:#8A6300;font-weight:700;text-transform:uppercase;">−Dar</div><div style="width:44px;font-size:10px;color:#1B6B3A;font-weight:700;text-transform:uppercase;">True</div>':''}
+      ${lk==='westmont'?'<div style="width:38px;font-size:10px;color:#555;font-weight:700;text-transform:uppercase;">Usage</div>':''}
+      <div style="width:34px;font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Avg</div>
     </div>
   </div>`;
 
@@ -1082,7 +1082,6 @@ async function showDashboard(lk){
     const usageColor = usageVal==null ? '#999' : '#555';
     const usageTxt = usageVal!=null ? usageVal : '—';
     const parTxt = pars[item.id]!=null ? pars[item.id] : '—';
-    const inProgTag = activeSession && activeSession.status==='in_progress' ? ' <span style="color:#C8102E;font-weight:700;">(in progress)</span>' : '';
 
     let orderedCell='', orderedHighlight='';
     if(showOrderedCol){
@@ -1118,17 +1117,17 @@ async function showDashboard(lk){
       if(need!=null && need>0){
         rowHighlight='background:#FFFBF0;';
         const isEst=currentDarienEstimateItems[item.id];
-        darienCell=`<div style="width:50px;font-size:13px;font-weight:700;color:#8A6300;">${need}${isEst?'<div style="font-size:8px;font-weight:700;">(est.)</div>':''}</div>`;
+        darienCell=`<div style="width:38px;font-size:13px;font-weight:700;color:#8A6300;">${need}${isEst?'<div style="font-size:8px;font-weight:700;">(est.)</div>':''}</div>`;
         if(countVal!==''){
           const trueCount=Math.round((Number(countVal)-need)*100)/100;
           const tc=trueCount<0?'#C8102E':'#1B6B3A';
-          trueCell=`<div style="width:64px;font-size:13px;font-weight:700;color:${tc};">${trueCount}</div>`;
+          trueCell=`<div style="width:44px;font-size:13px;font-weight:700;color:${tc};">${trueCount}</div>`;
         } else {
-          trueCell=`<div style="width:64px;font-size:13px;color:#999;">—</div>`;
+          trueCell=`<div style="width:44px;font-size:13px;color:#999;">—</div>`;
         }
       } else {
-        darienCell=`<div style="width:50px;font-size:13px;color:#ccc;">—</div>`;
-        trueCell=`<div style="width:64px;font-size:13px;color:#ccc;">—</div>`;
+        darienCell=`<div style="width:38px;font-size:13px;color:#ccc;">—</div>`;
+        trueCell=`<div style="width:44px;font-size:13px;color:#ccc;">—</div>`;
       }
     }
 
@@ -1137,13 +1136,13 @@ async function showDashboard(lk){
         <div class="ProdRow-name">${item.name}</div>
         <div class="ProdRow-meta">${item.unit}</div>
       </div>
-      <div style="display:flex;gap:14px;align-items:center;text-align:center;flex-shrink:0;">
-        ${lk==='westmont'?'':`<div style="width:44px;font-size:13px;color:${pars[item.id]!=null?'#111':'#ccc'};font-weight:${pars[item.id]!=null?'700':'400'};">${parTxt}</div>`}
-        <div style="width:54px;font-size:13px;font-weight:700;color:#111;">${countTxt}${inProgTag}</div>
+      <div style="display:flex;gap:6px;align-items:center;text-align:center;flex-shrink:0;">
+        ${lk==='westmont'?'':`<div style="width:34px;font-size:13px;color:${pars[item.id]!=null?'#111':'#ccc'};font-weight:${pars[item.id]!=null?'700':'400'};">${parTxt}</div>`}
+        <div style="width:40px;font-size:13px;font-weight:700;color:#111;">${countTxt}</div>
         ${orderedCell}
         ${darienCell}${trueCell}
-        ${lk==='westmont'?`<div style="width:50px;font-size:13px;font-weight:700;color:${usageColor};">${usageTxt}${usageAvgVal!=null?`<div style="font-size:9px;font-weight:400;color:#999;">avg ${usageAvgVal}</div>`:''}</div>`:''}
-        <div style="width:44px;font-size:13px;font-weight:700;color:#C8102E;">${avgTxt}</div>
+        ${lk==='westmont'?`<div style="width:38px;font-size:13px;font-weight:700;color:${usageColor};">${usageTxt}${usageAvgVal!=null?`<div style="font-size:9px;font-weight:400;color:#999;">avg ${usageAvgVal}</div>`:''}</div>`:''}
+        <div style="width:34px;font-size:13px;font-weight:700;color:#C8102E;">${avgTxt}</div>
       </div>
     </div>`;
   }).join('');
@@ -1186,7 +1185,7 @@ async function showDashboard(lk){
       <div id="weekTabsScroll" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:4px;">
         ${weekTabs.map(w=>`<button class="B ${w===selectedWeek?'B-red':'B-outline'}" data-week="${w}" style="flex-shrink:0;">Week ${w}</button>`).join('')}
       </div>
-      <div style="font-size:12px;color:#777;font-weight:600;margin-bottom:14px;">${weekRangeLabel(selectedWeek)}${selectedWeek===curWeek?' · current week':''}</div>
+      <div style="font-size:12px;color:#777;font-weight:600;margin-bottom:14px;">${weekRangeLabel(selectedWeek)}${selectedWeek===curWeek?' · current week':''}${activeSession && activeSession.status==='in_progress' ? ' <span style="color:#C8102E;font-weight:700;">· ⏳ in progress</span>' : ''}</div>
       <div class="LocBlock">${headerRow}${rows}</div>
       ${(lk==='westmont' && activeSession && activeSession.status==='completed') ? `
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px;">
