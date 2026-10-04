@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '26.4';
+const APP_VERSION = '26.5';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1052,7 +1052,18 @@ async function showDashboard(lk){
     }
   }
 
-  const showDarienCols = lk==='westmont' && selectedWeek===curWeek;
+  // The "live" week for Darien-tracking purposes isn't strictly today's
+  // calendar week - it's whichever week Westmont is actually still
+  // operating on. If no count has been started yet for the current
+  // calendar week (e.g. it's Sunday and the next count isn't until
+  // Wednesday), the most recent week that DOES have a session stays "live"
+  // until real activity begins on the new one.
+  const weekNumbersWithSessions = sessions.map(s=>weekNumberForDate(new Date(s.started_at)));
+  const hasCurWeekSession = weekNumbersWithSessions.includes(curWeek);
+  const pastWeeksWithSessions = weekNumbersWithSessions.filter(w=>w<=curWeek);
+  const operativeWeek = hasCurWeekSession ? curWeek : (pastWeeksWithSessions.length ? Math.max(...pastWeeksWithSessions) : curWeek);
+
+  const showDarienCols = lk==='westmont' && selectedWeek===operativeWeek;
   const showOrderedCol = lk==='darien' && selectedWeek===curWeek && activeSession;
 
   let weekAddons=[];
