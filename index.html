@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '26.8';
+const APP_VERSION = '26.9';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1464,7 +1464,7 @@ async function showDailyOnHand(targetDate){
         <button class="B B-ghost" id="bOnHandCancel">← Darien</button>
       </div>
     </header>
-    <div class="Page" style="padding-top:12px;">
+    <div class="Page" style="padding-top:12px;${isToday?'padding-bottom:60px;':''}">
       <div class="Modal-field" style="margin-bottom:12px;">
         <label>Date</label>
         <input type="date" id="onhandDatePicker" value="${date}" max="${today}" style="width:100%;height:44px;border:2px solid #E2E2E2;border-radius:8px;padding:0 12px;font-size:15px;font-family:'Inter',sans-serif;">
@@ -1480,8 +1480,8 @@ async function showDailyOnHand(targetDate){
       <button class="Fbtn" id="bOnHandCancel2">Cancel</button>
       <div class="Footer-prog">Separate from the weekly order</div>
       <button class="Fbtn Fbtn-next" id="bOnHandSave">💾 Save</button>
-    </div>
-    ${isToday ? `<button class="B B-red" id="bUpdateOrder" style="width:calc(100% - 32px);justify-content:center;height:48px;margin:0 16px 16px;">🔁 Review & Update Order</button>` : ''}`;
+      ${isToday ? `<button class="B B-red" id="bUpdateOrder" style="width:100%;justify-content:center;height:44px;order:99;">🔁 Review & Update Order</button>` : ''}
+    </div>`;
 
   document.getElementById('bOnHandCancel').onclick=document.getElementById('bOnHandCancel2').onclick=()=>showDarienMenu();
   document.getElementById('bOnHandHistory').onclick=()=>showDailyOnHandHistory();
