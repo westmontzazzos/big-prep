@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '27.2';
+const APP_VERSION = '27.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -637,11 +637,15 @@ function showCountsMenu(){
 // Read-only: Item | Par | last 3 days' on-hand | Average — from the Daily
 // On-Hand table, not the weekly order.
 async function showDarienCountsView(backFn){
+  const isDarienSide = !!backFn;
   backFn = backFn || (()=>showCountsMenu());
   showLoading();
   const darienPars=await loadPars('darien');
   const {data:recentAll}=await sb.from('darien_daily_onhand').select('*').order('date',{ascending:false}).limit(60);
   const days=(recentAll||[]).slice(0,3).sort((a,b)=>new Date(b.date)-new Date(a.date));
+  const latestDay=(recentAll && recentAll.length) ? recentAll[0] : null;
+  const todayStr=todayDateStr();
+  const latestIsToday = latestDay && latestDay.date===todayStr;
 
   const headerCells=days.map(d=>`<th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">${new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</th>`).join('');
   const rows = ALL_ITEMS.map(item=>{
@@ -677,9 +681,15 @@ async function showDarienCountsView(backFn){
           <tbody>${rows || `<tr><td colspan="${2+days.length}" style="padding:20px;text-align:center;color:#999;font-size:13px;">No daily on-hand data yet.</td></tr>`}</tbody>
         </table>
       </div>
+      ${isDarienSide && latestDay ? `<button class="B B-red" id="bLiveCountsOrder" style="width:100%;justify-content:center;height:48px;margin-top:16px;">🔁 Set This Week's Order = Par − On-Hand${latestIsToday?'':' (from '+new Date(latestDay.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})+')'}</button>` : ''}
     </div>`;
 
   document.getElementById('bDarienCountsBack').onclick=backFn;
+  if(document.getElementById('bLiveCountsOrder')){
+    document.getElementById('bLiveCountsOrder').onclick=()=>{
+      showOrderReview(latestDay.counts||{}, latestDay.updated_by||'Unnamed', latestDay.date, darienPars);
+    };
+  }
 }
 
 // ─── ORDERS SUB-MENU (Active Orders / Past Orders) ──────────────────────────
