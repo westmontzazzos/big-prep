@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '27.1';
+const APP_VERSION = '27.2';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -938,6 +938,16 @@ async function editCompletedOrder(row){
   showCount();
 }
 
+async function loadDraftSession(draft, lk){
+  session=draft;
+  session.counts=session.counts||{};
+  openCat=CATEGORIES[0].name;
+  currentPars=await loadPars(lk);
+  currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
+  currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
+  showCount();
+}
+
 async function goToCounting(lk){
   activeLoc=lk;
   if(testMode){
@@ -949,13 +959,23 @@ async function goToCounting(lk){
   showLoading();
   const {data}=await sb.from(TABLE).select('*').eq('location',lk).eq('status','in_progress').order('started_at',{ascending:false}).limit(1);
   if(data && data.length){
-    session=data[0];
-    session.counts=session.counts||{};
-    openCat=CATEGORIES[0].name;
-    currentPars=await loadPars(lk);
-    currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
-    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
-    showCount();
+    const draft=data[0];
+    // For Darien specifically: if a COMPLETED order already exists for this
+    // same week, loading this draft silently would hide that real order
+    // behind an empty/stale one. Warn and let them choose instead.
+    if(lk==='darien'){
+      const draftWeek=weekNumberForDate(new Date(draft.started_at));
+      const {data:completed}=await sb.from(TABLE).select('id,week_label').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
+      const hasCompletedSameWeek = completed && completed.length && weekNumberForDate(new Date(completed[0].completed_at))===draftWeek;
+      if(hasCompletedSameWeek){
+        showModal('An order already exists', `There's already a completed order for ${completed[0].week_label}. This draft looks like a separate, unfinished one for the same week.`, [
+          {l:'View the Completed Order',c:'B-red',fn:()=>{ closeModal(); showDarienOrderStatus(false); }},
+          {l:'Continue This Draft Instead',c:'B-outline',fn:()=>{ closeModal(); loadDraftSession(draft, lk); }},
+        ]);
+        return;
+      }
+    }
+    loadDraftSession(draft, lk);
   } else {
     showSetupModal(lk);
   }
