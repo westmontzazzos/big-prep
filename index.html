@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '26.6';
+const APP_VERSION = '26.7';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1480,22 +1480,63 @@ async function showDailyOnHand(targetDate){
       <button class="Fbtn" id="bOnHandCancel2">Cancel</button>
       <div class="Footer-prog">Separate from the weekly order</div>
       <button class="Fbtn Fbtn-next" id="bOnHandSave">💾 Save</button>
-    </div>`;
+    </div>
+    ${isToday ? `<button class="B B-red" id="bUpdateOrder" style="width:calc(100% - 32px);justify-content:center;height:48px;margin:0 16px 16px;">🔁 Save & Update Order (Par − On-Hand)</button>` : ''}`;
 
   document.getElementById('bOnHandCancel').onclick=document.getElementById('bOnHandCancel2').onclick=()=>showDarienMenu();
   document.getElementById('bOnHandHistory').onclick=()=>showDailyOnHandHistory();
   document.getElementById('onhandDatePicker').onchange=(e)=>showDailyOnHand(e.target.value);
-  document.getElementById('bOnHandSave').onclick=async ()=>{
+
+  function readOnHandInputs(){
     const counts={};
     document.querySelectorAll('[data-onhand-item]').forEach(inp=>{
       if(inp.value.trim()!=='') counts[inp.dataset.onhandItem]=inp.value.trim();
     });
+    return counts;
+  }
+
+  document.getElementById('bOnHandSave').onclick=async ()=>{
+    const counts=readOnHandInputs();
     const updatedBy=document.getElementById('onhandName').value.trim();
     showLoading();
     if(record.updated_at) await saveSnapshot('darien_daily_onhand', date, record.counts||{}, date+' — before update');
     await sb.from('darien_daily_onhand').upsert({date, counts, updated_by:updatedBy, updated_at:new Date().toISOString()}, {onConflict:'date'});
     showDarienMenu();
   };
+
+  if(document.getElementById('bUpdateOrder')){
+    document.getElementById('bUpdateOrder').onclick=async ()=>{
+      const onHandCounts=readOnHandInputs();
+      const updatedBy=document.getElementById('onhandName').value.trim();
+      showLoading();
+
+      // Save the on-hand entry first, same as the regular Save button.
+      if(record.updated_at) await saveSnapshot('darien_daily_onhand', date, record.counts||{}, date+' — before update');
+      await sb.from('darien_daily_onhand').upsert({date, counts:onHandCounts, updated_by:updatedBy, updated_at:new Date().toISOString()}, {onConflict:'date'});
+
+      // Par minus on-hand, per item, floored at 0.
+      const orderCounts={};
+      ALL_ITEMS.forEach(item=>{
+        const par=darienPars[item.id];
+        if(par==null) return;
+        const have=Number(onHandCounts[item.id]||0);
+        orderCounts[item.id]=String(Math.max(Math.round((par-have)*100)/100,0));
+      });
+
+      const weekLabel='Week of '+targetMondayForDarienOrder(new Date()).toLocaleDateString('en-US',{month:'short',day:'numeric'});
+      const {data:existingOrder}=await sb.from(TABLE).select('id,counts').eq('location','darien').eq('week_label',weekLabel).order('started_at',{ascending:false}).limit(1);
+
+      if(existingOrder && existingOrder.length){
+        await saveSnapshot('prep_counts', existingOrder[0].id, existingOrder[0].counts||{}, weekLabel+' — before auto-update from on-hand');
+        await sb.from(TABLE).update({counts:orderCounts, acknowledged:false, acknowledged_at:null}).eq('id',existingOrder[0].id);
+        await logActivity(existingOrder[0].id, weekLabel, 'edited', `Order auto-updated from on-hand by ${updatedBy||'Unnamed'} (Par − On-Hand)`, updatedBy);
+      } else {
+        const {data:created}=await sb.from(TABLE).insert({location:'darien', week_label:weekLabel, counter_name:updatedBy||'Unnamed', counts:orderCounts, status:'completed', started_at:new Date().toISOString(), completed_at:new Date().toISOString()}).select().single();
+        await logActivity(created.id, weekLabel, 'placed', `Order auto-generated from on-hand by ${updatedBy||'Unnamed'} (Par − On-Hand)`, updatedBy);
+      }
+      showDarienMenu();
+    };
+  }
 }
 
 // Read-only view for Westmont — the most recent day logged.
