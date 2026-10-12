@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '26.9';
+const APP_VERSION = '27.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1480,7 +1480,7 @@ async function showDailyOnHand(targetDate){
       <button class="Fbtn" id="bOnHandCancel2">Cancel</button>
       <div class="Footer-prog">Separate from the weekly order</div>
       <button class="Fbtn Fbtn-next" id="bOnHandSave">💾 Save</button>
-      ${isToday ? `<button class="B B-red" id="bUpdateOrder" style="width:100%;justify-content:center;height:44px;order:99;">🔁 Review & Update Order</button>` : ''}
+      ${isToday ? `<button class="B B-red" id="bUpdateOrder" style="width:100%;justify-content:center;height:44px;order:99;">🔁 Replace Order with Par − On-Hand</button>` : ''}
     </div>`;
 
   document.getElementById('bOnHandCancel').onclick=document.getElementById('bOnHandCancel2').onclick=()=>showDarienMenu();
