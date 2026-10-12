@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '27.6';
+const APP_VERSION = '27.7';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1873,6 +1873,7 @@ async function showDarienOrderStatus(editMode){
   }
 
   let rows='', weekAddonsGlobal=[];
+  const printItems=[];
   if(order){
     const delivered=order.delivered||{};
     const deliveredAt=order.delivered_at||{};
@@ -1888,6 +1889,7 @@ async function showDarienOrderStatus(editMode){
       if(darienPars[item.id]==null) return;
       const pickedUp=Number(delivered[item.id]||0)+addonDelivered;
       const done=total>0 && pickedUp>=total;
+      printItems.push({item, ordered:total, pickedUp});
       if(editMode){
         const addonCellContent = itemAddons.length
           ? `<button class="B B-outline" data-addon-detail="${item.id}" style="height:34px;padding:0 8px;font-size:12px;color:#1B6B3A;">${addonQty} (${itemAddons.length}) ✏️</button>`
@@ -1915,7 +1917,10 @@ async function showDarienOrderStatus(editMode){
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">${editMode?'Edit Order':'Order Status'}</div>
-      <div class="H-right"><button class="B B-ghost" id="bStatusBack">← ${editMode?'Cancel':'Darien'}</button></div>
+      <div class="H-right">
+        ${!editMode && order ? `<button class="B B-ghost" id="bStatusPrint">🖨 Print</button>` : ''}
+        <button class="B B-ghost" id="bStatusBack">← ${editMode?'Cancel':'Darien'}</button>
+      </div>
     </header>
     <div class="Page" style="padding-top:12px;">
       ${order ? `<div style="font-size:12px;color:#777;margin-bottom:12px;">${order.week_label}</div>` : ''}
@@ -1940,6 +1945,7 @@ async function showDarienOrderStatus(editMode){
     </div>`;
 
   document.getElementById('bStatusBack').onclick=()=>{ editMode ? showDarienOrderStatus(false) : showDarienMenu(); };
+  if(document.getElementById('bStatusPrint')) document.getElementById('bStatusPrint').onclick=()=>printTrackerSheet('DARIEN ORDER STATUS', order.week_label, printItems);
   if(document.getElementById('bVerifyOrder')) document.getElementById('bVerifyOrder').onclick=()=>showVerifyOrder(order);
   if(document.getElementById('bEditOrder')) document.getElementById('bEditOrder').onclick=()=>showDarienOrderStatus(true);
   document.querySelectorAll('[data-addon-detail]').forEach(btn=>{
