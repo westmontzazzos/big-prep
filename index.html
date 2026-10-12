@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '27.4';
+const APP_VERSION = '27.5';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1618,7 +1618,9 @@ function showOrderReview(onHandCounts, updatedBy, date, darienPars){
       ]);
       return;
     }
-    showLoading();
+    // Read every override input BEFORE calling showLoading() - showLoading
+    // wipes the whole page immediately, so reading these after would always
+    // find nothing and silently fall back to the uncorrected computed value.
     const orderCounts={};
     ALL_ITEMS.forEach(item=>{
       const par=darienPars[item.id];
@@ -1631,6 +1633,7 @@ function showOrderReview(onHandCounts, updatedBy, date, darienPars){
         orderCounts[item.id]=String(Math.max(Math.round((par-have)*100)/100,0));
       }
     });
+    showLoading();
     const weekLabel='Week of '+targetMondayForDarienOrder(new Date()).toLocaleDateString('en-US',{month:'short',day:'numeric'});
     const {data:existingOrder}=await sb.from(TABLE).select('id,counts').eq('location','darien').eq('week_label',weekLabel).order('started_at',{ascending:false}).limit(1);
     if(existingOrder && existingOrder.length){
