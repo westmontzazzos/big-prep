@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '27.3';
+const APP_VERSION = '27.4';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1555,6 +1555,20 @@ function showOrderReview(onHandCounts, updatedBy, date, darienPars){
     const par=darienPars[item.id];
     const have=Number(onHandCounts[item.id]||0);
     const need=Math.max(Math.round((par-have)*100)/100,0);
+    // Bucket items (Alfredo, Soup, Frozen Alfredo, Marinara, Gravy) can only
+    // be ordered in whole or half-unit increments - a quarter or three-
+    // quarter bucket isn't a real orderable amount. Flag it and let it be
+    // fixed right here instead of silently rounding behind the scenes.
+    const isBucket = item.containerLabel==='bucket';
+    const isHalfIncrement = Math.abs((need*2)-Math.round(need*2))<0.001;
+    const needsFix = isBucket && !isHalfIncrement;
+    const roundedSuggestion = Math.round(need*2)/2;
+    const orderCell = needsFix
+      ? `<div style="width:64px;">
+          <input type="number" min="0" step="0.5" data-order-override="${item.id}" value="${roundedSuggestion}" style="width:56px;height:30px;font-size:13px;text-align:center;border:2px solid #C8102E;border-radius:6px;">
+          <div style="font-size:8px;color:#C8102E;font-weight:700;">⚠️ was ${need}</div>
+        </div>`
+      : `<div style="width:48px;font-size:14px;color:#C8102E;font-weight:800;" data-order-display="${item.id}">${need}</div>`;
     return `<div class="ProdRow">
       <div class="ProdRow-info">
         <div class="ProdRow-name">${item.name}</div>
@@ -1564,7 +1578,7 @@ function showOrderReview(onHandCounts, updatedBy, date, darienPars){
         <div style="width:40px;font-size:13px;color:#999;">${par}</div>
         <div style="width:40px;font-size:13px;color:#111;font-weight:700;">${have}</div>
         <input type="checkbox" data-onhand-confirm="${item.id}" checked style="width:20px;height:20px;">
-        <div style="width:48px;font-size:14px;color:#C8102E;font-weight:800;">${need}</div>
+        ${orderCell}
       </div>
     </div>`;
   }).join('');
@@ -1576,6 +1590,7 @@ function showOrderReview(onHandCounts, updatedBy, date, darienPars){
     </header>
     <div class="Page" style="padding-top:12px;">
       <div style="font-size:12px;color:#777;margin-bottom:12px;">On-hand saved for ${new Date(date+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}. Check off that each on-hand number is right, then submit.</div>
+      ${rows.includes('⚠️') ? `<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:12px;">⚠️ Some items came out to a quarter-bucket amount, which can't actually be ordered. They're highlighted below with a rounded suggestion - adjust if needed before submitting.</div>` : ''}
       <div class="ProdRow" style="background:#F7F7F7;">
         <div class="ProdRow-info"><div style="font-size:10px;color:#999;font-weight:700;text-transform:uppercase;">Item</div></div>
         <div style="display:flex;gap:10px;align-items:center;text-align:center;flex-shrink:0;">
@@ -1608,8 +1623,13 @@ function showOrderReview(onHandCounts, updatedBy, date, darienPars){
     ALL_ITEMS.forEach(item=>{
       const par=darienPars[item.id];
       if(par==null) return;
-      const have=Number(onHandCounts[item.id]||0);
-      orderCounts[item.id]=String(Math.max(Math.round((par-have)*100)/100,0));
+      const overrideInput=document.querySelector(`[data-order-override="${item.id}"]`);
+      if(overrideInput){
+        orderCounts[item.id]=String(Math.max(Number(overrideInput.value||0),0));
+      } else {
+        const have=Number(onHandCounts[item.id]||0);
+        orderCounts[item.id]=String(Math.max(Math.round((par-have)*100)/100,0));
+      }
     });
     const weekLabel='Week of '+targetMondayForDarienOrder(new Date()).toLocaleDateString('en-US',{month:'short',day:'numeric'});
     const {data:existingOrder}=await sb.from(TABLE).select('id,counts').eq('location','darien').eq('week_label',weekLabel).order('started_at',{ascending:false}).limit(1);
