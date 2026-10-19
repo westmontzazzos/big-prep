@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '27.7';
+const APP_VERSION = '27.8';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -3120,6 +3120,7 @@ function showCount(){
       </div>
     </header>
     <div class="Page">
+      ${activeLoc==='darien' ? `<button class="B B-red" id="bPullCounts" style="width:100%;justify-content:center;height:48px;margin-bottom:14px;">📥 Pull Current Counts (Par − On-Hand)</button>` : ''}
       ${testMode?'<div style="background:#FDECEA;color:#C8102E;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">🧪 TEST MODE — nothing here is saved to Supabase</div>':''}
       ${session.completed_at?'<div style="background:#FFF6E0;color:#8A6300;font-size:12px;font-weight:700;padding:8px 12px;border-radius:8px;margin-bottom:10px;text-align:center;">✏️ Editing a previously submitted week — finishing again will override it'+(activeLoc==='darien'?' and require re-acknowledgment':'')+'</div>':''}
       <div style="font-size:11px;color:#777;margin-bottom:10px;">${session.week_label} · Counted by ${session.counter_name}</div>
@@ -3134,6 +3135,27 @@ function showCount(){
 
   document.getElementById('bHome').onclick=document.getElementById('bHome2').onclick=()=>{ activeLoc==='darien' ? showDarienMenu() : showDashboard(activeLoc); };
   document.getElementById('bAvg').onclick=()=>showAverages();
+  if(document.getElementById('bPullCounts')){
+    document.getElementById('bPullCounts').onclick=async ()=>{
+      showLoading();
+      const latest=await getLatestDailyOnHand();
+      if(!latest){
+        showModal('No on-hand data yet', 'Log a Daily On-Hand count first, then come back and pull it in here.', [{l:'OK',c:'B-red',fn:closeModal}]);
+        showCount();
+        return;
+      }
+      const onHand=latest.counts||{};
+      ALL_ITEMS.forEach(item=>{
+        const par=currentPars[item.id];
+        if(par==null) return;
+        const have=Number(onHand[item.id]||0);
+        session.counts[item.id]=String(Math.max(Math.round((par-have)*100)/100,0));
+      });
+      await saveCounts(true);
+      showModal('Pulled in', `Filled in from on-hand logged ${new Date(latest.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}. Review the numbers below, adjust anything that needs it, then hit Confirm when ready.`, [{l:'OK',c:'B-red',fn:closeModal}]);
+      showCount();
+    };
+  }
   document.getElementById('bNotes').onclick=()=>showNotes(showCount, testMode?null:session.id, session.week_label);
   document.getElementById('bClear').onclick=()=>{
     showModal('Clear this count?','This erases every entry for '+session.week_label+' at '+l.name+'. The session stays open so you can start over.',[
