@@ -125,46 +125,36 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.0';
+const APP_VERSION = '28.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
 // containerLabel = what you're actually counting (bucket/bag/etc) — used for
 // display, so it never has to be guessed out of the `unit` description text
 const CATEGORIES = [
-  {name:'Appetizers', items:[
-    {id:'calamari',name:'Calamari',unit:'box', mult:1, baseUnit:'ct', containerLabel:'box'},
-  ]},
-  {name:'Beef', items:[
+  {name:'Beef & Chicken', items:[
     {id:'ground_beef',name:'Ground Beef',unit:'5 lb bag', mult:5, baseUnit:'lb', containerLabel:'bag'},
     {id:'sliced_beef',name:'Sliced Beef',unit:'5 lb bag', mult:5, baseUnit:'lb', containerLabel:'bag'},
-  ]},
-  {name:'Frozen Pizza', items:[
-    {id:'pizza_cheese',name:'Cheese Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
-    {id:'pizza_sausage',name:'Sausage Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
-    {id:'pizza_pepperoni',name:'Pepperoni Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
-  ]},
-  {name:'Meat and Chicken', items:[
+    {id:'sausage_links',name:'Sausage Links',unit:'bag of 7', mult:7, baseUnit:'ct', containerLabel:'bag'},
+    {id:'meatballs',name:'Meatballs',unit:'bag of 8', mult:8, baseUnit:'ct', containerLabel:'bag'},
     {id:'chicken_parm',name:'Chicken Parm',unit:'bag of 18', mult:18, baseUnit:'ct', containerLabel:'bag'},
     {id:'grilled_chicken',name:'Grilled Chicken',unit:'10 lb bag', mult:10, baseUnit:'lb', containerLabel:'bag'},
     {id:'lemon_chicken',name:'Lemon Chicken',unit:'group of 10', mult:10, baseUnit:'ct', containerLabel:'group'},
     {id:'ribs',name:'Ribs',unit:'half slab', mult:1, baseUnit:'ct', containerLabel:'half slab'},
     {id:'chicken_wings',name:'Chicken Wings',unit:'bucket (16 bags of 12)', mult:192, baseUnit:'ct', containerLabel:'bucket'},
   ]},
-  {name:'Pasta', items:[
+  {name:'Frozen Pizza, Pasta & Sauces', items:[
+    {id:'pizza_cheese',name:'Cheese Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_sausage',name:'Sausage Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_pepperoni',name:'Pepperoni Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
     {id:'lasagna',name:'Lasagna',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
-  ]},
-  {name:'Sauces', items:[
     {id:'alfredo',name:'Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
     {id:'soup',name:'Soup',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
     {id:'frozen_alfredo',name:'Frozen Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
     {id:'marinara',name:'Marinara',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
     {id:'gravy',name:'Gravy',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
     {id:'chili',name:'Chili',unit:'bag', mult:1, baseUnit:'ct', containerLabel:'bag'},
-  ]},
-  {name:'Sausage & Meatballs', items:[
-    {id:'sausage_links',name:'Sausage Links',unit:'bag of 7', mult:7, baseUnit:'ct', containerLabel:'bag'},
-    {id:'meatballs',name:'Meatballs',unit:'bag of 8', mult:8, baseUnit:'ct', containerLabel:'bag'},
+    {id:'calamari',name:'Calamari',unit:'box', mult:1, baseUnit:'ct', containerLabel:'box'},
   ]},
 ];
 const ALL_ITEMS = CATEGORIES.flatMap(c=>c.items);
@@ -3044,7 +3034,7 @@ function showCount(){
   const blocks = CATEGORIES.filter(cat=>visibleCatItems(cat).length>0).map((cat,ci)=>{
     const filled=catFilledCount(cat);
     const complete=catComplete(cat);
-    const isOpen=openCat===cat.name;
+    const isOpen=true; // always expanded - no more one-at-a-time accordion
     const badgeCls = complete?'badge-done':'badge-active';
     const badgeTxt = complete?'✓ Done':filled+' / '+visibleCatItems(cat).length;
 
@@ -3104,7 +3094,6 @@ function showCount(){
 
     return `<div class="LocBlock" id="cb-${ci}">
       <div class="LocHeader" data-cat="${cat.name}" data-ci="${ci}">
-        <span class="LocHeader-arrow${isOpen?' open':''}">›</span>
         <div class="LocHeader-info">
           <div class="LocHeader-name">${cat.name}</div>
           <div class="LocHeader-meta">${cat.items.length} item${cat.items.length!==1?'s':''}</div>
