@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '27.8';
+const APP_VERSION = '27.9';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -3144,15 +3144,27 @@ function showCount(){
         showCount();
         return;
       }
-      const onHand=latest.counts||{};
-      ALL_ITEMS.forEach(item=>{
-        const par=currentPars[item.id];
-        if(par==null) return;
-        const have=Number(onHand[item.id]||0);
-        session.counts[item.id]=String(Math.max(Math.round((par-have)*100)/100,0));
-      });
-      await saveCounts(true);
-      showModal('Pulled in', `Filled in from on-hand logged ${new Date(latest.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}. Review the numbers below, adjust anything that needs it, then hit Confirm when ready.`, [{l:'OK',c:'B-red',fn:closeModal}]);
+      const todayStr=todayDateStr();
+      const isToday=latest.date===todayStr;
+      const fillFromLatest=()=>{
+        const onHand=latest.counts||{};
+        ALL_ITEMS.forEach(item=>{
+          const par=currentPars[item.id];
+          if(par==null) return;
+          const have=Number(onHand[item.id]||0);
+          session.counts[item.id]=String(Math.max(Math.round((par-have)*100)/100,0));
+        });
+        saveCounts(true);
+      };
+      if(!isToday){
+        showModal('⚠️ Not today\'s on-hand', `The most recent on-hand count on file is from ${new Date(latest.date+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}, not today. Log today's on-hand first for accurate numbers, or pull in this older data anyway.`, [
+          {l:'Go Log Today\'s On-Hand',c:'B-red',fn:()=>{ closeModal(); showDailyOnHand(todayStr); }},
+          {l:'Use Older Data Anyway',c:'B-outline',fn:async ()=>{ closeModal(); fillFromLatest(); showModal('Pulled in', `Filled in from ${new Date(latest.date+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}'s on-hand (not today's). Review carefully before confirming.`, [{l:'OK',c:'B-red',fn:closeModal}]); showCount(); }},
+        ]);
+        return;
+      }
+      fillFromLatest();
+      showModal('✅ Pulled in — verified as today\'s on-hand', `Filled in from on-hand logged today, ${new Date(latest.date+'T00:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric'})}. Review the numbers below, adjust anything that needs it, then hit Confirm when ready.`, [{l:'OK',c:'B-red',fn:closeModal}]);
       showCount();
     };
   }
