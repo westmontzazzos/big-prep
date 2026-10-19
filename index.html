@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '27.9';
+const APP_VERSION = '28.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -925,7 +925,7 @@ async function startFreshCount(lk, weekLabel, countLabel, backdateTo){
   openCat=CATEGORIES[0].name;
   currentPars=await loadPars(lk);
   currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
-  currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
+  currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : (lk==='darien' ? (await getLatestDailyOnHand()||{}).counts||{} : {});
   showCount();
 }
 
@@ -944,7 +944,7 @@ async function editCompletedOrder(row){
   openCat=CATEGORIES[0].name;
   currentPars=await loadPars(row.location);
   currentDarienOwed = row.location==='westmont' ? await getDarienAllocatedMap() : {};
-  currentDarienOnHand = row.location==='westmont' ? await getDarienOnHandForToday() : {};
+  currentDarienOnHand = row.location==='westmont' ? await getDarienOnHandForToday() : (row.location==='darien' ? (await getLatestDailyOnHand()||{}).counts||{} : {});
   showCount();
 }
 
@@ -954,7 +954,7 @@ async function loadDraftSession(draft, lk){
   openCat=CATEGORIES[0].name;
   currentPars=await loadPars(lk);
   currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
-  currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
+  currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : (lk==='darien' ? (await getLatestDailyOnHand()||{}).counts||{} : {});
   showCount();
 }
 
@@ -962,7 +962,7 @@ async function goToCounting(lk){
   activeLoc=lk;
   if(testMode){
     if(testSessions[lk]){ session=testSessions[lk]; openCat=CATEGORIES[0].name; currentPars=await loadPars(lk); currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
-    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {}; showCount(); }
+    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : (lk==='darien' ? (await getLatestDailyOnHand()||{}).counts||{} : {}); showCount(); }
     else showSetupModal(lk);
     return;
   }
@@ -3019,7 +3019,7 @@ function showSetupModal(lk){
       openCat=CATEGORIES[0].name;
       currentPars=await loadPars(lk);
       currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
-    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
+    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : (lk==='darien' ? (await getLatestDailyOnHand()||{}).counts||{} : {});
       showCount();
       return;
     }
@@ -3030,7 +3030,7 @@ function showSetupModal(lk){
     openCat=CATEGORIES[0].name;
     currentPars=await loadPars(lk);
     currentDarienOwed = lk==='westmont' ? await getDarienAllocatedMap() : {};
-    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : {};
+    currentDarienOnHand = lk==='westmont' ? await getDarienOnHandForToday() : (lk==='darien' ? (await getLatestDailyOnHand()||{}).counts||{} : {});
     showCount();
   };
 }
@@ -3055,12 +3055,17 @@ function showCount(){
       if(activeLoc==='darien'){
         const par=currentPars[item.id];
         const parTxt = par!=null ? ('Par '+par) : 'No par set yet';
+        const onHandVal = currentDarienOnHand[item.id];
+        const onHandTxt = onHandVal!=null && onHandVal!=='' ? onHandVal : '—';
         return `<div class="ProdRow">
           <div class="ProdRow-info">
             <div class="ProdRow-name">${item.name}</div>
             <div class="ProdRow-meta">${item.unit} · ${parTxt}</div>
           </div>
           <div class="DualInput">
+            <div class="IG"><label style="color:#999;">On-Hand</label>
+              <div class="SI-readonly" style="font-size:18px;">${onHandTxt}</div>
+            </div>
             <div class="IG"><label>Ordering</label>
               <input class="SI${val!==''?' filled':''}" type="number" min="0" step="any" inputmode="decimal"
                 data-item="${item.id}" data-cat="${cat.name}" value="${val}" placeholder="0">
