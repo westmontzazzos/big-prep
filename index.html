@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.2';
+const APP_VERSION = '28.3';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -2261,7 +2261,12 @@ async function showActiveOrdersTable(){
           <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">${sunOrder||'—'}</td>
           <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
           <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">${total}</td>
-          <td style="padding:8px 6px;text-align:center;"><button class="B B-outline" data-mark-picked="${item.id}" data-mp-total="${total}" style="height:32px;padding:0 8px;font-size:14px;">⬜</button></td>
+          <td style="padding:8px 6px;text-align:center;">
+            <div style="display:flex;align-items:center;gap:4px;justify-content:center;">
+              <input type="number" min="0" step="any" inputmode="decimal" data-deliver-qty="${item.id}" value="${Math.max(Math.round((total-pickedUp)*100)/100,0)}" style="width:44px;height:30px;font-size:12px;text-align:center;border:2px solid #E2E2E2;border-radius:6px;">
+              <button class="B B-outline" data-mark-picked="${item.id}" data-mp-total="${total}" style="height:30px;padding:0 6px;font-size:13px;">⬜</button>
+            </div>
+          </td>
         </tr>`;
       }
     });
@@ -2408,8 +2413,14 @@ async function showActiveOrdersTable(){
     });
     if(confirmBtn) confirmBtn.onclick=()=>{
       if(selectedItems.size===0) return;
-      const names=[...selectedItems].map(id=>ITEM_BY_ID[id]?.name||id).join(', ');
-      showModal('Confirm picked up?', `Mark ${selectedItems.size} item${selectedItems.size!==1?'s':''} as fully picked up: ${names}`, [
+      // Read each item's entered quantity BEFORE showLoading wipes the page.
+      const qtyByItem={};
+      for(const itemId of selectedItems){
+        const input=document.querySelector(`[data-deliver-qty="${itemId}"]`);
+        qtyByItem[itemId]=input ? Math.max(Number(input.value||0),0) : 0;
+      }
+      const summary=[...selectedItems].map(id=>`${ITEM_BY_ID[id]?.name||id}: ${qtyByItem[id]}`).join(', ');
+      showModal('Confirm picked up?', `Record these amounts as picked up: ${summary}`, [
         {l:'Cancel',c:'B-outline',fn:closeModal},
         {l:'Confirm',c:'B-red',fn:async ()=>{
           closeModal();
@@ -2418,31 +2429,41 @@ async function showActiveOrdersTable(){
           const {data:row}=await sb.from(TABLE).select('delivered,delivered_at').eq('id',mainOrder.id).single();
           const delivered={...(row?.delivered||{})};
           const deliveredAt={...(row?.delivered_at||{})};
+          // Pull fresh add-on rows once, so partial amounts can be distributed
+          // correctly: fill the main order's remaining room first, then
+          // spill any leftover into add-ons in order.
+          const addonRows=[];
+          for(const a of weekAddons){
+            const {data:arow}=await sb.from('darien_addons').select('id,items,delivered,delivered_at').eq('id',a.id).single();
+            if(arow) addonRows.push({...arow, delivered:{...(arow.delivered||{})}, delivered_at:{...(arow.delivered_at||{})}, changed:false});
+          }
           for(const itemId of selectedItems){
+            let remaining=qtyByItem[itemId];
+            if(remaining<=0) continue;
             const sunOrder=Number(mainOrder.counts?.[itemId]||0);
-            delivered[itemId]=sunOrder;
-            deliveredAt[itemId]=nowTs;
+            const mainAlready=Number(delivered[itemId]||0);
+            const mainRoom=Math.max(sunOrder-mainAlready,0);
+            const mainFill=Math.min(mainRoom,remaining);
+            if(mainFill>0){ delivered[itemId]=mainAlready+mainFill; deliveredAt[itemId]=nowTs; remaining=Math.round((remaining-mainFill)*100)/100; }
+            for(const arow of addonRows){
+              if(remaining<=0) break;
+              const need=Number((arow.items||{})[itemId]||0);
+              if(need<=0) continue;
+              const already=Number(arow.delivered[itemId]||0);
+              const room=Math.max(need-already,0);
+              const fill=Math.min(room,remaining);
+              if(fill>0){ arow.delivered[itemId]=already+fill; arow.delivered_at[itemId]=nowTs; arow.changed=true; remaining=Math.round((remaining-fill)*100)/100; }
+            }
           }
           await sb.from(TABLE).update({delivered, delivered_at:deliveredAt}).eq('id',mainOrder.id);
-          for(const a of weekAddons){
-            let changed=false;
-            const {data:arow}=await sb.from('darien_addons').select('items,delivered,delivered_at').eq('id',a.id).single();
-            const adel={...(arow?.delivered||{})};
-            const adelAt={...(arow?.delivered_at||{})};
-            for(const itemId of selectedItems){
-              const q=Number((a.items||{})[itemId]||0);
-              if(q>0){ adel[itemId]=q; adelAt[itemId]=nowTs; changed=true; }
-            }
-            if(changed){
-              const allDone=Object.keys(arow?.items||{}).every(k=>Number(adel[k]||0)>=Number(arow.items[k]||0));
-              await sb.from('darien_addons').update({delivered:adel, delivered_at:adelAt, status:allDone?'fulfilled':'open'}).eq('id',a.id);
-            }
+          for(const arow of addonRows){
+            if(!arow.changed) continue;
+            const allDone=Object.keys(arow.items||{}).every(k=>Number(arow.delivered[k]||0)>=Number(arow.items[k]||0));
+            await sb.from('darien_addons').update({delivered:arow.delivered, delivered_at:arow.delivered_at, status:allDone?'fulfilled':'open'}).eq('id',arow.id);
           }
           for(const itemId of selectedItems){
             const itemName=ITEM_BY_ID[itemId]?.name||itemId;
-            const sunOrder=Number(mainOrder.counts?.[itemId]||0);
-            const addonQty=weekAddons.reduce((s,a)=>s+Number((a.items||{})[itemId]||0),0);
-            await logActivity(mainOrder.id, mainOrder.week_label, 'picked_up', `${itemName} marked picked up by Westmont (${sunOrder+addonQty} total)`);
+            await logActivity(mainOrder.id, mainOrder.week_label, 'picked_up', `${itemName}: ${qtyByItem[itemId]} marked picked up by Westmont`);
           }
           showActiveOrdersTable();
         }},
