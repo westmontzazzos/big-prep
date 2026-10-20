@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.3';
+const APP_VERSION = '28.4';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -156,7 +156,7 @@ const CATEGORIES = [
     {id:'soup',name:'Soup',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
   ]},
   {name:'Other', items:[
-    {id:'calamari',name:'Calamari',unit:'box', mult:1, baseUnit:'ct', containerLabel:'box'},
+    {id:'calamari',name:'Calamari',unit:'box', mult:1, baseUnit:'ct', containerLabel:'box', callInOnly:true},
     {id:'cauliflower_crust',name:'Cauliflower Crust',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
   ]},
 ];
@@ -462,7 +462,10 @@ function mostRecentSunday(d){
 // up for them at all, though Westmont's own counts are unaffected.
 function visibleCatItems(cat){
   if(activeLoc!=='darien') return cat.items;
-  return cat.items.filter(i=>currentPars[i.id]!=null);
+  // callInOnly items (e.g. Calamari) aren't part of the normal par-based
+  // order - Darien has to specifically call those in, so they're excluded
+  // from the standard Place Order flow even though they have a par set.
+  return cat.items.filter(i=>currentPars[i.id]!=null && !i.callInOnly);
 }
 function catFilledCount(cat){ return visibleCatItems(cat).filter(i=>(session.counts[i.id]??'')!=='' ).length; }
 function catComplete(cat){ return visibleCatItems(cat).every(i=>(session.counts[i.id]??'')!=='' ); }
@@ -1555,7 +1558,7 @@ async function showDailyOnHand(targetDate){
 // Submit button to finalize.
 function showOrderReview(onHandCounts, updatedBy, date, darienPars){
   const weekLabel='Week of '+targetMondayForDarienOrder(new Date()).toLocaleDateString('en-US',{month:'short',day:'numeric'});
-  const rows = ALL_ITEMS.filter(item=>darienPars[item.id]!=null).map(item=>{
+  const rows = ALL_ITEMS.filter(item=>darienPars[item.id]!=null && !item.callInOnly).map(item=>{
     const par=darienPars[item.id];
     const have=Number(onHandCounts[item.id]||0);
     const need=Math.max(Math.round((par-have)*100)/100,0);
@@ -1638,6 +1641,7 @@ function showOrderReview(onHandCounts, updatedBy, date, darienPars){
     // find nothing and silently fall back to the uncorrected computed value.
     const orderCounts={};
     ALL_ITEMS.forEach(item=>{
+      if(item.callInOnly) return;
       const par=darienPars[item.id];
       if(par==null) return;
       const overrideInput=document.querySelector(`[data-order-override="${item.id}"]`);
@@ -3167,6 +3171,7 @@ function showCount(){
       const fillFromLatest=()=>{
         const onHand=latest.counts||{};
         ALL_ITEMS.forEach(item=>{
+          if(item.callInOnly) return;
           const par=currentPars[item.id];
           if(par==null) return;
           const have=Number(onHand[item.id]||0);
