@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.7';
+const APP_VERSION = '28.8';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -3364,34 +3364,19 @@ async function doPrint(finalSession, loc, lk){
     tableRows+=`<tr><td colspan="4" style="background:#1A1A2E;color:#fff;font-weight:700;padding:4px 8px;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;border-top:2px solid #000;border-bottom:2px solid #000;">${cat.name}</td></tr>
     <tr>
       <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:40%;border-right:1px solid #8B0000;">Item</td>
-      ${isDarien
-        ? `<td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;border-right:1px solid #8B0000;">Par</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;border-right:1px solid #8B0000;">Par</td>
       <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;border-right:1px solid #8B0000;">On Hand</td>
-      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;">Order</td>`
-        : `<td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:25%;border-right:1px solid #8B0000;">Unit</td>
-      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:17%;border-right:1px solid #8B0000;">${loc.fieldLabel}</td>
-      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:18%;">Total</td>`
-      }
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:20%;">${isDarien?'Order':loc.fieldLabel}</td>
     </tr>`;
     cat.items.forEach(item=>{
       const val=finalSession.counts[item.id] ?? '';
-      if(isDarien){
-        const par=currentPars[item.id];
-        const onHandCalc=(par!=null && val!=='') ? (par-Number(val)) : '';
-        tableRows+=`<tr>
+      const par=currentPars[item.id];
+      const onHandCalc=(par!=null && val!=='') ? (par-Number(val)) : '';
+      tableRows+=`<tr>
         <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;font-family:'Inter',system-ui,sans-serif;">${item.name}</td>
         <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;color:#555;text-align:center;font-family:'Inter',system-ui,sans-serif;">${par!=null?par:'—'}</td>
         <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#8A6300;font-family:'Inter',system-ui,sans-serif;">${onHandCalc}</td>
         <td style="padding:3px 8px;border:1px solid #DDD;background:#FFF176;font-size:9px;text-align:center;font-weight:700;color:#111;font-family:'Inter',system-ui,sans-serif;">${val}</td>
-      </tr>`;
-        return;
-      }
-      const totalTxt = val!=='' ? (Number(val)*item.mult)+' '+item.baseUnit : '';
-      tableRows+=`<tr>
-        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;font-family:'Inter',system-ui,sans-serif;">${item.name}</td>
-        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;color:#555;font-family:'Inter',system-ui,sans-serif;">${item.unit}</td>
-        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#C8102E;font-family:'Inter',system-ui,sans-serif;">${val}</td>
-        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#1B6B3A;font-family:'Inter',system-ui,sans-serif;">${totalTxt}</td>
       </tr>`;
     });
   });
