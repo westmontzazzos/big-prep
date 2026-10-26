@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.10';
+const APP_VERSION = '28.12';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -923,7 +923,11 @@ function showDarienMenu(){
       </div>
       <div class="MenuTile" id="bMenuLiveCounts">
         <div class="MenuTile-emoji">📈</div>
-        <div><div class="MenuTile-title">Live Counts</div><div class="MenuTile-sub">Same view Westmont sees</div></div>
+        <div><div class="MenuTile-title">Live Counts</div><div class="MenuTile-sub">Daily on-hand trend, last 3 days + avg</div></div>
+      </div>
+      <div class="MenuTile" id="bMenuDashboard">
+        <div class="MenuTile-emoji">📊</div>
+        <div><div class="MenuTile-title">Dashboard</div><div class="MenuTile-sub">Weekly counts + print by week - same as Westmont</div></div>
       </div>
     </div>`;
 
@@ -933,6 +937,7 @@ function showDarienMenu(){
   document.getElementById('bMenuOrderStatus').onclick=()=>showDarienOrderStatus();
   document.getElementById('bMenuEditAddOn').onclick=()=>showDarienOrderStatus(true);
   document.getElementById('bMenuLiveCounts').onclick=()=>{ activeLoc='darien'; showDarienCountsView(()=>showDarienMenu()); };
+  document.getElementById('bMenuDashboard').onclick=()=>showDashboard('darien');
 }
 
 // ─── EDIT A COMPLETED ORDER/COUNT ────────────────────────────────────────────
@@ -1533,6 +1538,7 @@ async function showDailyOnHand(targetDate){
     <header class="H no-print">
       <div class="H-logo">Daily On-Hand</div>
       <div class="H-right">
+        <button class="B B-ghost" id="bOnHandPrint">🖨 Print</button>
         <button class="B B-ghost" id="bOnHandHistory">🕐 History</button>
         <button class="B B-ghost" id="bOnHandCancel">← Darien</button>
       </div>
@@ -1568,6 +1574,14 @@ async function showDailyOnHand(targetDate){
     return counts;
   }
 
+  document.getElementById('bOnHandPrint').onclick=()=>{
+    // Read whatever is currently in the boxes (including unsaved edits) -
+    // printing doesn't wipe the page, so this is safe to do at click time.
+    const counts=readOnHandInputs();
+    const name=document.getElementById('onhandName').value.trim();
+    printDailyOnHandSheet(date, name, counts, darienPars);
+  };
+
   document.getElementById('bOnHandSave').onclick=async ()=>{
     const counts=readOnHandInputs();
     const updatedBy=document.getElementById('onhandName').value.trim();
@@ -1588,6 +1602,45 @@ async function showDailyOnHand(targetDate){
       showOrderReview(onHandCounts, updatedBy, date, darienPars);
     };
   }
+}
+
+function printDailyOnHandSheet(date, name, counts, darienPars){
+  const dateStr=new Date(date+'T00:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  let tableRows='';
+  CATEGORIES.forEach(cat=>{
+    const items=cat.items.filter(item=>darienPars[item.id]!=null);
+    if(!items.length) return;
+    tableRows+=`<tr><td colspan="3" style="background:#1A1A2E;color:#fff;font-weight:700;padding:4px 8px;font-size:9px;text-transform:uppercase;letter-spacing:0.08em;border-top:2px solid #000;border-bottom:2px solid #000;">${cat.name}</td></tr>
+    <tr>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:50%;border-right:1px solid #8B0000;">Item</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:25%;border-right:1px solid #8B0000;">Par</td>
+      <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:25%;">On Hand</td>
+    </tr>`;
+    items.forEach(item=>{
+      const par=darienPars[item.id];
+      const val=counts[item.id] ?? '';
+      tableRows+=`<tr>
+        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;font-family:'Inter',system-ui,sans-serif;">${item.name}</td>
+        <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;color:#555;text-align:center;font-family:'Inter',system-ui,sans-serif;">${par!=null?par:'—'}</td>
+        <td style="padding:3px 8px;border:1px solid #DDD;background:#FFF176;font-size:9px;text-align:center;font-weight:700;color:#111;font-family:'Inter',system-ui,sans-serif;">${val}</td>
+      </tr>`;
+    });
+  });
+
+  document.getElementById('print-area').innerHTML = `
+    <div style="font-family:'Inter',system-ui,sans-serif;font-size:9px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1A1A2E;padding-bottom:4px;margin-bottom:6px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#C8102E;text-transform:uppercase;letter-spacing:0.05em;font-family:'Libre Baskerville',Georgia,serif;">DARIEN DAILY ON-HAND</div>
+          <div style="font-size:8px;font-weight:700;text-transform:uppercase;color:#333;margin-top:2px;letter-spacing:0.06em;">${dateStr}${name?' · '+name:''}</div>
+        </div>
+        <div style="text-align:right;font-size:8px;color:#555;">Printed: ${new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:9px;table-layout:fixed;">
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>`;
+  window.print();
 }
 
 // Shows the Par / On-Hand / Order math per item before actually submitting
