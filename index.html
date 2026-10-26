@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.5';
+const APP_VERSION = '28.6';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -145,14 +145,14 @@ const CATEGORIES = [
   ]},
   {name:'Frozen Pizza, Pasta & Sauces', items:[
     {id:'alfredo',name:'Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
-    {id:'pizza_cheese',name:'Cheese Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
     {id:'chili',name:'Chili',unit:'bag', mult:1, baseUnit:'ct', containerLabel:'bag'},
     {id:'frozen_alfredo',name:'Frozen Alfredo',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
     {id:'gravy',name:'Gravy',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
     {id:'lasagna',name:'Lasagna',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
     {id:'marinara',name:'Marinara',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
-    {id:'pizza_pepperoni',name:'Pepperoni Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
-    {id:'pizza_sausage',name:'Sausage Pizza',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_cheese',name:'Pizza - Cheese',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_pepperoni',name:'Pizza - Pepperoni',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
+    {id:'pizza_sausage',name:'Pizza - Sausage',unit:'each', mult:1, baseUnit:'ct', containerLabel:'each'},
     {id:'soup',name:'Soup',unit:'5-gal bucket', mult:5, baseUnit:'gal', containerLabel:'bucket'},
   ]},
   {name:'Other', items:[
