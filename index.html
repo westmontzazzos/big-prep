@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.8';
+const APP_VERSION = '28.9';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1869,7 +1869,7 @@ async function showDarienOrderStatus(editMode){
     if(verifs && verifs.length) latestVerification=verifs[0];
   }
 
-  let rows='', weekAddonsGlobal=[];
+  let rows='', weekAddonsGlobal=[], anyOutstandingDarien=false;
   const printItems=[];
   if(order){
     const delivered=order.delivered||{};
@@ -1900,12 +1900,19 @@ async function showDarienOrderStatus(editMode){
         </tr>`;
       } else {
         const ts=deliveredAt[item.id]?new Date(deliveredAt[item.id]).toLocaleDateString('en-US',{month:'short',day:'numeric'}):null;
+        const checkCell = total<=0 ? ''
+          : done
+            ? `<div style="font-size:15px;">✅</div><button class="B B-outline" data-undo-received="${item.id}" style="height:24px;padding:0 6px;font-size:10px;color:#C8102E;border-color:#C8102E;margin-top:4px;">↩️ Undo</button>`
+            : (anyOutstandingDarien=true, `<div style="display:flex;align-items:center;gap:4px;justify-content:center;">
+                 <input type="number" min="0" step="any" inputmode="decimal" data-receive-qty="${item.id}" value="${Math.max(Math.round((total-pickedUp)*100)/100,0)}" style="width:44px;height:30px;font-size:12px;text-align:center;border:2px solid #E2E2E2;border-radius:6px;">
+                 <button class="B B-outline" data-mark-received="${item.id}" style="height:30px;padding:0 6px;font-size:13px;">⬜</button>
+               </div>`);
         rows+=`<tr style="${done?'background:#E8F5ED;':''}">
-          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}${ts?`<div style="font-size:9px;color:#1B6B3A;font-weight:600;">Picked up ${ts}</div>`:''}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}${ts?`<div style="font-size:9px;color:#1B6B3A;font-weight:600;">Received ${ts}</div>`:''}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;">${ordered||'—'}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:800;">${total}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:15px;text-align:center;">${done?'✅':''}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;text-align:center;">${checkCell}</td>
         </tr>`;
       }
     });
@@ -1935,6 +1942,7 @@ async function showDarienOrderStatus(editMode){
           <tbody>${rows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#999;font-size:13px;">Nothing ordered yet this week.</td></tr>'}</tbody>
         </table>` : '<div style="padding:20px;text-align:center;color:#999;font-size:13px;">No order has been placed yet this week.</div>'}
       </div>
+      ${(!editMode && anyOutstandingDarien) ? `<button class="B B-red" id="bConfirmReceived" style="width:100%;justify-content:center;height:48px;margin-top:16px;" disabled>✅ Confirm Received (0)</button>` : ''}
       ${order ? (editMode
         ? '<button class="B B-red" id="bSaveEdit" style="width:100%;justify-content:center;height:48px;margin-top:16px;">💾 Save Order Changes</button>'
         : `<button class="B B-outline" id="bEditOrder" style="width:100%;justify-content:center;height:48px;margin-top:16px;">✏️ Edit / Add-On</button><button class="B ${latestVerification?'B-outline':'B-red'}" id="bVerifyOrder" style="width:100%;justify-content:center;height:48px;margin-top:10px;${latestVerification?'color:#1B6B3A;border-color:#1B6B3A;':''}">${latestVerification?(latestVerification.is_correct?'✅ Verified — Re-check?':'🚨 Missing Reported — Re-check?'):'✅ Verify Order'}</button>`
@@ -1948,6 +1956,121 @@ async function showDarienOrderStatus(editMode){
   document.querySelectorAll('[data-addon-detail]').forEach(btn=>{
     btn.onclick=()=>showAddonDetailEditor(order, btn.dataset.addonDetail, weekAddonsGlobal);
   });
+  if(!editMode && order){
+    document.querySelectorAll('[data-undo-received]').forEach(btn=>{
+      btn.onclick=()=>{
+        const itemId=btn.dataset.undoReceived;
+        const itemName=ITEM_BY_ID[itemId]?.name||itemId;
+        showModal('Undo received?', `Move ${itemName} back to outstanding — this reverses marking it as received.`, [
+          {l:'Cancel',c:'B-outline',fn:closeModal},
+          {l:'Undo',c:'B-red',fn:async ()=>{
+            closeModal();
+            showLoading();
+            const {data:row}=await sb.from(TABLE).select('delivered,delivered_at').eq('id',order.id).single();
+            const delivered={...(row?.delivered||{})};
+            const deliveredAt={...(row?.delivered_at||{})};
+            delivered[itemId]=0;
+            delete deliveredAt[itemId];
+            await sb.from(TABLE).update({delivered, delivered_at:deliveredAt}).eq('id',order.id);
+            for(const a of weekAddonsGlobal){
+              if(Number((a.items||{})[itemId]||0)>0){
+                const {data:arow}=await sb.from('darien_addons').select('items,delivered,delivered_at').eq('id',a.id).single();
+                const adel={...(arow?.delivered||{})};
+                const adelAt={...(arow?.delivered_at||{})};
+                adel[itemId]=0;
+                delete adelAt[itemId];
+                await sb.from('darien_addons').update({delivered:adel, delivered_at:adelAt, status:'open'}).eq('id',a.id);
+              }
+            }
+            await logActivity(order.id, order.week_label, 'picked_up', `${itemName}'s pickup was undone by Darien`);
+            showDarienOrderStatus(false);
+          }},
+        ]);
+      };
+    });
+    const selectedReceiveItems=new Set();
+    const confirmReceivedBtn=document.getElementById('bConfirmReceived');
+    function refreshConfirmReceivedBtn(){
+      if(!confirmReceivedBtn) return;
+      confirmReceivedBtn.textContent=`✅ Confirm Received (${selectedReceiveItems.size})`;
+      confirmReceivedBtn.disabled=selectedReceiveItems.size===0;
+      confirmReceivedBtn.style.opacity=selectedReceiveItems.size===0?'0.5':'1';
+    }
+    document.querySelectorAll('[data-mark-received]').forEach(btn=>{
+      btn.onclick=()=>{
+        const itemId=btn.dataset.markReceived;
+        if(selectedReceiveItems.has(itemId)){
+          selectedReceiveItems.delete(itemId);
+          btn.textContent='⬜';
+          btn.classList.remove('B-red');
+        } else {
+          selectedReceiveItems.add(itemId);
+          btn.textContent='✅';
+          btn.classList.add('B-red');
+        }
+        refreshConfirmReceivedBtn();
+      };
+    });
+    if(confirmReceivedBtn) confirmReceivedBtn.onclick=()=>{
+      if(selectedReceiveItems.size===0) return;
+      // Read every entered quantity BEFORE showLoading wipes the page.
+      const qtyByItem={};
+      for(const itemId of selectedReceiveItems){
+        const input=document.querySelector(`[data-receive-qty="${itemId}"]`);
+        qtyByItem[itemId]=input ? Math.max(Number(input.value||0),0) : 0;
+      }
+      const summary=[...selectedReceiveItems].map(id=>`${ITEM_BY_ID[id]?.name||id}: ${qtyByItem[id]}`).join(', ');
+      showModal('Confirm received?', `Record these amounts as received: ${summary}`, [
+        {l:'Cancel',c:'B-outline',fn:closeModal},
+        {l:'Confirm',c:'B-red',fn:async ()=>{
+          closeModal();
+          showLoading();
+          const nowTs=new Date().toISOString();
+          const {data:row}=await sb.from(TABLE).select('delivered,delivered_at').eq('id',order.id).single();
+          const delivered={...(row?.delivered||{})};
+          const deliveredAt={...(row?.delivered_at||{})};
+          // Pull fresh add-on rows once, so partial amounts can be distributed
+          // correctly: fill the main order's remaining room first, then
+          // spill any leftover into add-ons in order - same algorithm as
+          // Westmont's pickup confirmation.
+          const addonRows=[];
+          for(const a of weekAddonsGlobal){
+            const {data:arow}=await sb.from('darien_addons').select('id,items,delivered,delivered_at').eq('id',a.id).single();
+            if(arow) addonRows.push({...arow, delivered:{...(arow.delivered||{})}, delivered_at:{...(arow.delivered_at||{})}, changed:false});
+          }
+          for(const itemId of selectedReceiveItems){
+            let remaining=qtyByItem[itemId];
+            if(remaining<=0) continue;
+            const mainOrdered=Number(order.counts?.[itemId]||0);
+            const mainAlready=Number(delivered[itemId]||0);
+            const mainRoom=Math.max(mainOrdered-mainAlready,0);
+            const mainFill=Math.min(mainRoom,remaining);
+            if(mainFill>0){ delivered[itemId]=mainAlready+mainFill; deliveredAt[itemId]=nowTs; remaining=Math.round((remaining-mainFill)*100)/100; }
+            for(const arow of addonRows){
+              if(remaining<=0) break;
+              const need=Number((arow.items||{})[itemId]||0);
+              if(need<=0) continue;
+              const already=Number(arow.delivered[itemId]||0);
+              const room=Math.max(need-already,0);
+              const fill=Math.min(room,remaining);
+              if(fill>0){ arow.delivered[itemId]=already+fill; arow.delivered_at[itemId]=nowTs; arow.changed=true; remaining=Math.round((remaining-fill)*100)/100; }
+            }
+          }
+          await sb.from(TABLE).update({delivered, delivered_at:deliveredAt}).eq('id',order.id);
+          for(const arow of addonRows){
+            if(!arow.changed) continue;
+            const allDone=Object.keys(arow.items||{}).every(k=>Number(arow.delivered[k]||0)>=Number(arow.items[k]||0));
+            await sb.from('darien_addons').update({delivered:arow.delivered, delivered_at:arow.delivered_at, status:allDone?'fulfilled':'open'}).eq('id',arow.id);
+          }
+          for(const itemId of selectedReceiveItems){
+            const itemName=ITEM_BY_ID[itemId]?.name||itemId;
+            await logActivity(order.id, order.week_label, 'picked_up', `${itemName}: ${qtyByItem[itemId]} marked received by Darien`);
+          }
+          showDarienOrderStatus(false);
+        }},
+      ]);
+    };
+  }
   if(document.getElementById('bSaveEdit')){
     document.getElementById('bSaveEdit').onclick=async ()=>{
       const editorName=document.getElementById('editorName').value.trim()||'Unnamed';
