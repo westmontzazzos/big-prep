@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.9';
+const APP_VERSION = '28.10';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -644,6 +644,7 @@ async function showDarienCountsView(backFn){
   const latestIsToday = latestDay && latestDay.date===todayStr;
 
   const headerCells=days.map(d=>`<th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">${new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</th>`).join('');
+  const printRows=[];
   const rows = ALL_ITEMS.map(item=>{
     const par=darienPars[item.id];
     const vals=days.map(d=>Number(d.counts?.[item.id]??null));
@@ -653,6 +654,7 @@ async function showDarienCountsView(backFn){
     const allValsForItem=(recentAll||[]).map(d=>Number(d.counts?.[item.id]??null)).filter(v=>!isNaN(v) && v!==null);
     if(par==null && validVals.length===0 && allValsForItem.length===0) return '';
     const aggregateAvg = allValsForItem.length ? (allValsForItem.reduce((a,b)=>a+b,0)/allValsForItem.length).toFixed(1) : '—';
+    printRows.push({item, par, vals, aggregateAvg});
     const cells=days.map((d,i)=>`<td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:600;">${isNaN(vals[i])?'—':vals[i]}</td>`).join('');
     return `<tr>
       <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}${par!=null?` <span style="color:#999;font-weight:400;">(Par: ${par})</span>`:''}</td>
@@ -664,7 +666,10 @@ async function showDarienCountsView(backFn){
   app.innerHTML = `
     <header class="H no-print">
       <div class="H-logo">Live Counts</div>
-      <div class="H-right"><button class="B B-ghost" id="bDarienCountsBack">← Back</button></div>
+      <div class="H-right">
+        <button class="B B-ghost" id="bLiveCountsPrint">🖨 Print</button>
+        <button class="B B-ghost" id="bDarienCountsBack">← Back</button>
+      </div>
     </header>
     <div class="Page" style="padding-top:12px;">
       <div class="LocBlock" style="overflow-x:auto;">
@@ -681,11 +686,43 @@ async function showDarienCountsView(backFn){
     </div>`;
 
   document.getElementById('bDarienCountsBack').onclick=backFn;
+  document.getElementById('bLiveCountsPrint').onclick=()=>printLiveCountsSheet(days, printRows);
   if(document.getElementById('bLiveCountsOrder')){
     document.getElementById('bLiveCountsOrder').onclick=()=>{
       showOrderReview(latestDay.counts||{}, latestDay.updated_by||'Unnamed', latestDay.date, darienPars);
     };
   }
+}
+
+function printLiveCountsSheet(days, printRows){
+  const dateStr=new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+  const dayHeaders = days.map(d=>`<td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;text-align:center;">${new Date(d.date+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'})}</td>`).join('');
+  const rows = printRows.map(({item,par,vals,aggregateAvg})=>`<tr>
+    <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;font-family:'Inter',system-ui,sans-serif;">${item.name}${par!=null?` <span style="color:#777;">(Par: ${par})</span>`:''}</td>
+    ${vals.map(v=>`<td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#111;font-family:'Inter',system-ui,sans-serif;">${isNaN(v)?'—':v}</td>`).join('')}
+    <td style="padding:3px 8px;border:1px solid #DDD;font-size:9px;text-align:center;font-weight:700;color:#C8102E;font-family:'Inter',system-ui,sans-serif;">${aggregateAvg}</td>
+  </tr>`).join('') || `<tr><td colspan="${2+days.length}" style="padding:10px;text-align:center;font-size:9px;color:#777;">No daily on-hand data yet.</td></tr>`;
+
+  document.getElementById('print-area').innerHTML = `
+    <div style="font-family:'Inter',system-ui,sans-serif;font-size:9px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #1A1A2E;padding-bottom:4px;margin-bottom:6px;">
+        <div>
+          <div style="font-size:14px;font-weight:700;color:#C8102E;text-transform:uppercase;letter-spacing:0.05em;font-family:'Libre Baskerville',Georgia,serif;">DARIEN LIVE COUNTS</div>
+        </div>
+        <div style="text-align:right;font-size:8px;color:#555;">Printed: ${dateStr}</div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:9px;table-layout:fixed;">
+        <tbody>
+          <tr>
+            <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;width:40%;">Item</td>
+            ${dayHeaders}
+            <td style="background:#A50E1F;color:#fff;font-weight:700;padding:3px 8px;font-size:9px;text-transform:uppercase;text-align:center;">Avg</td>
+          </tr>
+          ${rows}
+        </tbody>
+      </table>
+    </div>`;
+  window.print();
 }
 
 // ─── ORDERS SUB-MENU (Active Orders / Past Orders) ──────────────────────────
