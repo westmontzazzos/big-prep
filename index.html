@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.12';
+const APP_VERSION = '28.13';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -1501,6 +1501,14 @@ function todayDateStr(){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
+async function getOnHandForOrder(order){
+  if(!order) return {};
+  const d=new Date(order.completed_at||order.started_at||Date.now());
+  const ds=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const {data}=await sb.from('darien_daily_onhand').select('date,counts').lte('date',ds).order('date',{ascending:false}).limit(1);
+  return (data&&data.length)?(data[0].counts||{}):{};
+}
+
 async function getLatestDailyOnHand(){
   const {data,error}=await sb.from('darien_daily_onhand').select('*').order('date',{ascending:false}).limit(1);
   if(error || !data || !data.length) return null;
@@ -1952,6 +1960,8 @@ async function showDarienOrderStatus(editMode){
   const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(5);
   const order=(data||[]).find(r=>weekNumberForDate(new Date(r.started_at))===curWeek);
   const darienPars=await loadPars('darien');
+  const ohCounts=editMode?{}:await getOnHandForOrder(order);
+  const ohCell=id=>{const v=ohCounts[id]; return (v===undefined||v==='')?'—':v;};
 
   let latestVerification=null;
   if(order){
@@ -1999,9 +2009,9 @@ async function showDarienOrderStatus(editMode){
                </div>`);
         rows+=`<tr style="${done?'background:#E8F5ED;':''}">
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:12px;font-weight:600;">${item.name}${ts?`<div style="font-size:9px;color:#1B6B3A;font-weight:600;">Received ${ts}</div>`:''}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;">${ordered||'—'}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
-          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:800;">${total}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:700;">${ohCell(item.id)}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;color:#999;">${darienPars[item.id]}</td>
+          <td style="padding:8px 10px;border-bottom:1px solid #EEE;font-size:13px;text-align:center;font-weight:800;background:#FFF176;">${total}${addonQty>0?`<div style="font-size:9px;color:#1B6B3A;font-weight:700;">incl. +${addonQty} add-on</div>`:''}</td>
           <td style="padding:8px 10px;border-bottom:1px solid #EEE;text-align:center;">${checkCell}</td>
         </tr>`;
       }
@@ -2017,16 +2027,18 @@ async function showDarienOrderStatus(editMode){
       </div>
     </header>
     <div class="Page" style="padding-top:12px;">
-      ${order ? `<div style="font-size:12px;color:#777;margin-bottom:12px;">${order.week_label}</div>` : ''}
+      ${order ? `<div style="font-size:12px;color:#777;margin-bottom:12px;">${editMode?'':'<b style="color:#C8102E;">ORDER GUIDE</b> · '}${order.week_label}</div>` : ''}
       ${editMode ? `<div class="Modal-field" style="margin-bottom:12px;"><label>Your name</label><input id="editorName" placeholder="Your name"></div>` : ''}
       ${order && latestVerification ? `<div style="background:${latestVerification.is_correct?'#E8F5ED':'#FDECEA'};color:${latestVerification.is_correct?'#1B6B3A':'#C8102E'};font-size:12px;font-weight:700;padding:10px 12px;border-radius:8px;margin-bottom:12px;">${latestVerification.is_correct?'✅ Verified correct':'🚨 Missing items reported'} by ${latestVerification.verified_by||'Unnamed'} on ${new Date(latestVerification.verified_at).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</div>` : ''}
       <div class="LocBlock" style="overflow-x:auto;">
         ${order ? `<table style="width:100%;border-collapse:collapse;">
           <thead><tr style="background:#F7F7F7;">
             <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;text-align:left;">Item</th>
-            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">Ordered</th>
+            ${editMode ? `<th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">Ordered</th>
             <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">Add-Ons</th>
-            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">Total</th>
+            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">Total</th>` : `<th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">On Hand</th>
+            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">Par</th>
+            <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;background:#FFF176;">Order</th>`}
             <th style="padding:8px 10px;font-size:10px;color:#999;text-transform:uppercase;">✓</th>
           </tr></thead>
           <tbody>${rows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#999;font-size:13px;">Nothing ordered yet this week.</td></tr>'}</tbody>
@@ -2413,6 +2425,8 @@ async function showActiveOrdersTable(){
   const darienPars=await loadPars('darien');
   const {data:latestD}=await sb.from(TABLE).select('*').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
   const mainOrder=(latestD && latestD.length)?latestD[0]:null;
+  const ohCounts=await getOnHandForOrder(mainOrder);
+  const ohCell=id=>{const v=ohCounts[id]; return (v===undefined||v==='')?'—':v;};
 
   let weekAddons=[], latestVerification=null;
   if(mainOrder){
@@ -2444,10 +2458,9 @@ async function showActiveOrdersTable(){
       if(total<=0){
         bodyRows+=`<tr>
           <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">${ohCell(item.id)}</td>
           <td style="padding:8px 6px;font-size:12px;text-align:center;color:#999;">${par!=null?par:'—'}</td>
-          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">0</td>
-          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#1B6B3A;">—</td>
-          <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">0</td>
+          <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;background:#FFF176;">0</td>
           <td style="padding:8px 6px;text-align:center;color:#ccc;">—</td>
         </tr>`;
       } else if(done){
@@ -2459,13 +2472,12 @@ async function showActiveOrdersTable(){
           const ts=fmtTs((a.delivered_at||{})[item.id]);
           return ts?`${a.requested_by||'Unnamed'} ${ts}`:'';
         }).filter(Boolean).join(' · ');
-        const dateNote=[mainTs?'Sunday '+mainTs:'', addonTsNote].filter(Boolean).join(' · ');
+        const dateNote=[mainTs?'Picked up '+mainTs:'', addonTsNote].filter(Boolean).join(' · ');
         pickedUpRows+=`<tr style="background:#E8F5ED;">
           <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}${dateNote?`<div style="font-size:9px;color:#1B6B3A;font-weight:600;">${dateNote}</div>`:''}</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">${ohCell(item.id)}</td>
           <td style="padding:8px 6px;font-size:12px;text-align:center;color:#999;">${par!=null?par:'—'}</td>
-          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">${sunOrder||'—'}</td>
-          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
-          <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">${total}</td>
+          <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;background:#FFF176;">${total}${addonQty>0?`<div style="font-size:9px;color:#1B6B3A;font-weight:700;">incl. +${addonQty} add-on</div>`:''}</td>
           <td style="padding:8px 6px;text-align:center;">
             <div style="font-size:15px;">✅</div>
             <button class="B B-outline" data-undo-pickup="${item.id}" style="height:24px;padding:0 6px;font-size:10px;color:#C8102E;border-color:#C8102E;margin-top:4px;">↩️ Undo</button>
@@ -2474,10 +2486,9 @@ async function showActiveOrdersTable(){
       } else {
         bodyRows+=`<tr>
           <td style="padding:8px 10px;font-size:12px;font-weight:600;">${item.name}</td>
+          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">${ohCell(item.id)}</td>
           <td style="padding:8px 6px;font-size:12px;text-align:center;color:#999;">${par!=null?par:'—'}</td>
-          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;">${sunOrder||'—'}</td>
-          <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:700;color:#1B6B3A;">${addonQty||'—'}</td>
-          <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">${total}</td>
+          <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;background:#FFF176;">${total}${addonQty>0?`<div style="font-size:9px;color:#1B6B3A;font-weight:700;">incl. +${addonQty} add-on</div>`:''}</td>
           <td style="padding:8px 6px;text-align:center;">
             <div style="display:flex;align-items:center;gap:4px;justify-content:center;">
               <input type="number" min="0" step="any" inputmode="decimal" data-deliver-qty="${item.id}" value="${Math.max(Math.round((total-pickedUp)*100)/100,0)}" style="width:44px;height:30px;font-size:12px;text-align:center;border:2px solid #E2E2E2;border-radius:6px;">
@@ -2516,25 +2527,23 @@ async function showActiveOrdersTable(){
       </div>
     </header>
     <div class="Page" style="padding-top:12px;">
-      ${mainOrder ? `<div style="font-size:12px;color:#777;margin-bottom:10px;">${mainOrder.week_label}</div>` : ''}
+      ${mainOrder ? `<div style="font-size:12px;color:#777;margin-bottom:10px;"><b style="color:#C8102E;">ORDER GUIDE</b> · ${mainOrder.week_label} · On Hand = Darien's count when ordered</div>` : ''}
       ${ackBanner}
       ${discrepancyBanner}
       <div class="LocBlock" style="overflow-x:auto;margin-bottom:20px;">
         ${mainOrder ? `<table style="width:100%;border-collapse:collapse;">
           <thead><tr style="background:#F7F7F7;">
             <th style="padding:8px 10px;font-size:9px;color:#999;text-transform:uppercase;text-align:left;">Item</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">On Hand</th>
             <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Par</th>
-            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Sunday</th>
-            <th style="padding:8px 6px;font-size:9px;color:#1B6B3A;text-transform:uppercase;">Add-Ons</th>
-            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Total</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;background:#FFF176;">Order</th>
             <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">✓</th>
           </tr></thead>
           <tbody>${bodyRows || '<tr><td colspan="6" style="padding:20px;text-align:center;color:#999;font-size:13px;">Nothing outstanding.</td></tr>'}</tbody>
           <tfoot><tr style="background:#F7F7F7;border-top:2px solid #DDD;">
             <td style="padding:8px 10px;font-size:11px;font-weight:700;">TOTAL</td>
             <td></td>
-            <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:800;">${sunTotal}</td>
-            <td style="padding:8px 6px;font-size:12px;text-align:center;font-weight:800;color:#1B6B3A;">${addonTotal}</td>
+            <td></td>
             <td style="padding:8px 6px;font-size:13px;text-align:center;font-weight:800;">${grandTotal}</td>
             <td></td>
           </tr></tfoot>
@@ -2545,10 +2554,9 @@ async function showActiveOrdersTable(){
         <table style="width:100%;border-collapse:collapse;">
           <thead><tr style="background:#F7F7F7;">
             <th style="padding:8px 10px;font-size:9px;color:#999;text-transform:uppercase;text-align:left;">Item</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">On Hand</th>
             <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Par</th>
-            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Sunday</th>
-            <th style="padding:8px 6px;font-size:9px;color:#1B6B3A;text-transform:uppercase;">Add-Ons</th>
-            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">Total</th>
+            <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;background:#FFF176;">Order</th>
             <th style="padding:8px 6px;font-size:9px;color:#999;text-transform:uppercase;">✓</th>
           </tr></thead>
           <tbody>${pickedUpRows}</tbody>
