@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '28.14';
+const APP_VERSION = '29.0';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -223,6 +223,7 @@ let currentPars = {};    // par levels for the active location, keyed by item id
 let currentDarienOwed = {}; // Westmont-only: what's currently owed to Darien, keyed by item id
 let currentDarienIsEstimate = false; // true when Darien's real order isn't in yet and we're forecasting from par-minus-on-hand instead
 let currentDarienEstimateItems = {}; // per-item: true if THIS item's number is an estimate (e.g. already delivered, or no order yet)
+let currentDarienAvg = {}; // Darien: average qty ordered per week, per item (from completed orders)
 let currentDarienOnHand = {}; // Westmont-only: Darien's on-hand for whatever day Westmont is counting
 
 // Whatever day Westmont is actively counting, pull in Darien's on-hand from
@@ -905,39 +906,72 @@ function showDarienMenu(){
       <div class="H-right"><button class="B B-ghost" id="bMenuHome">🏠 Home</button></div>
     </header>
     <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
-      <div class="MenuTile primary" id="bMenuPlaceOrder">
+      <div class="MenuTile primary" id="bMenuOrders">
+        <div class="MenuTile-emoji">📝</div>
+        <div><div class="MenuTile-title">Orders</div><div class="MenuTile-sub">Place order · Add-on · Order status / check-in</div></div>
+      </div>
+      <div class="MenuTile" id="bMenuCounts">
+        <div class="MenuTile-emoji">🔄</div>
+        <div><div class="MenuTile-title">Counts</div><div class="MenuTile-sub">Daily counts · Live counts</div></div>
+      </div>
+    </div>`;
+  document.getElementById('bMenuHome').onclick=()=>showHome();
+  document.getElementById('bMenuOrders').onclick=()=>showDarienOrdersMenu();
+  document.getElementById('bMenuCounts').onclick=()=>showDarienCountsMenu();
+}
+
+function showDarienOrdersMenu(){
+  activeLoc='darien';
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Orders</div>
+      <div class="H-right"><button class="B B-ghost" id="bOrdersBack">← Darien</button></div>
+    </header>
+    <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
+      <div class="MenuTile primary" id="bOrdPlace">
         <div class="MenuTile-emoji">📝</div>
         <div><div class="MenuTile-title">Place Order</div><div class="MenuTile-sub">Enter this week's order</div></div>
       </div>
-      <div class="MenuTile" id="bMenuEditAddOn">
-        <div class="MenuTile-emoji">✏️</div>
-        <div><div class="MenuTile-title">Edit Order / Add-On</div><div class="MenuTile-sub">Fix an order or request something extra</div></div>
+      <div class="MenuTile" id="bOrdAddOn">
+        <div class="MenuTile-emoji">➕</div>
+        <div><div class="MenuTile-title">Add-On</div><div class="MenuTile-sub">Add something to the order you already placed</div></div>
       </div>
-      <div class="MenuTile" id="bMenuOrderStatus">
-        <div class="MenuTile-emoji">📊</div>
-        <div><div class="MenuTile-title">Order Status</div><div class="MenuTile-sub">See what's ordered and picked up</div></div>
-      </div>
-      <div class="MenuTile" id="bMenuOnHand">
-        <div class="MenuTile-emoji">🔄</div>
-        <div><div class="MenuTile-title">Daily On-Hand</div><div class="MenuTile-sub">Quick update, takes 20 seconds</div></div>
-      </div>
-      <div class="MenuTile" id="bMenuLiveCounts">
-        <div class="MenuTile-emoji">📈</div>
-        <div><div class="MenuTile-title">Live Counts</div><div class="MenuTile-sub">Daily on-hand trend, last 3 days + avg</div></div>
-      </div>
-      <div class="MenuTile" id="bMenuDashboard">
-        <div class="MenuTile-emoji">📊</div>
-        <div><div class="MenuTile-title">Dashboard</div><div class="MenuTile-sub">Weekly counts + print by week - same as Westmont</div></div>
+      <div class="MenuTile" id="bOrdStatus">
+        <div class="MenuTile-emoji">✅</div>
+        <div><div class="MenuTile-title">Order Status / Check-In</div><div class="MenuTile-sub">See the order and check off what came in</div></div>
       </div>
     </div>`;
+  document.getElementById('bOrdersBack').onclick=()=>showDarienMenu();
+  document.getElementById('bOrdPlace').onclick=()=>goToCounting('darien');
+  document.getElementById('bOrdAddOn').onclick=()=>showDarienOrderStatus(true);
+  document.getElementById('bOrdStatus').onclick=()=>showDarienOrderStatus();
+}
 
-  document.getElementById('bMenuHome').onclick=()=>showHome();
-  document.getElementById('bMenuPlaceOrder').onclick=()=>goToCounting('darien');
-  document.getElementById('bMenuOnHand').onclick=()=>showDailyOnHand();
-  document.getElementById('bMenuOrderStatus').onclick=()=>showDarienOrderStatus();
-  document.getElementById('bMenuEditAddOn').onclick=()=>showDarienOrderStatus(true);
-  document.getElementById('bMenuLiveCounts').onclick=()=>{ activeLoc='darien'; showDarienCountsView(()=>showDarienMenu()); };
-  document.getElementById('bMenuDashboard').onclick=()=>showDashboard('darien');
+function showDarienCountsMenu(){
+  activeLoc='darien';
+  app.innerHTML = `
+    <header class="H no-print">
+      <div class="H-logo">Counts</div>
+      <div class="H-right"><button class="B B-ghost" id="bCountsBack">← Darien</button></div>
+    </header>
+    <div class="Page" style="padding-top:20px;display:flex;flex-direction:column;gap:14px;">
+      <div class="MenuTile primary" id="bCntDaily">
+        <div class="MenuTile-emoji">🔄</div>
+        <div><div class="MenuTile-title">Daily Counts</div><div class="MenuTile-sub">Enter today's on-hand</div></div>
+      </div>
+      <div class="MenuTile" id="bCntLive">
+        <div class="MenuTile-emoji">📈</div>
+        <div><div class="MenuTile-title">Live Counts</div><div class="MenuTile-sub">Last 3 days + average, printable</div></div>
+      </div>
+      <div class="MenuTile" id="bCntDash">
+        <div class="MenuTile-emoji">📊</div>
+        <div><div class="MenuTile-title">Past Weeks / Print</div><div class="MenuTile-sub">Weekly counts, print any completed week</div></div>
+      </div>
+    </div>`;
+  document.getElementById('bCountsBack').onclick=()=>showDarienMenu();
+  document.getElementById('bCntDaily').onclick=()=>showDailyOnHand();
+  document.getElementById('bCntLive').onclick=()=>{ activeLoc='darien'; showDarienCountsView(()=>showDarienCountsMenu()); };
+  document.getElementById('bCntDash').onclick=()=>showDashboard('darien');
 }
 
 // ─── EDIT A COMPLETED ORDER/COUNT ────────────────────────────────────────────
@@ -1509,7 +1543,20 @@ async function getOnHandForOrder(order){
   return (data&&data.length)?(data[0].counts||{}):{};
 }
 
+async function getDarienWeeklyAvg(){
+  const {data}=await sb.from(TABLE).select('week_label,counts,completed_at').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false});
+  const seen=new Set(), sums={}, ns={};
+  (data||[]).forEach(r=>{
+    if(seen.has(r.week_label)) return; seen.add(r.week_label); // one order per week (latest)
+    Object.entries(r.counts||{}).forEach(([id,v])=>{ const n=Number(v); if(n>0){ sums[id]=(sums[id]||0)+n; ns[id]=(ns[id]||0)+1; } });
+  });
+  const out={};
+  Object.keys(sums).forEach(id=>{ out[id]=Math.round(sums[id]/ns[id]*10)/10; });
+  return out;
+}
+
 async function getLatestDailyOnHand(){
+  currentDarienAvg=await getDarienWeeklyAvg(); // side effect: Place Order screen shows avg/wk
   const {data,error}=await sb.from('darien_daily_onhand').select('*').order('date',{ascending:false}).limit(1);
   if(error || !data || !data.length) return null;
   return data[0];
@@ -1567,7 +1614,6 @@ async function showDailyOnHand(targetDate){
       <button class="Fbtn" id="bOnHandCancel2">Cancel</button>
       <div class="Footer-prog">Separate from the weekly order</div>
       <button class="Fbtn Fbtn-next" id="bOnHandSave">💾 Save</button>
-      ${isToday ? `<button class="B B-red" id="bUpdateOrder" style="width:100%;justify-content:center;height:44px;order:99;">🔁 Set This Week's Order = Par − On-Hand</button>` : ''}
     </div>`;
 
   document.getElementById('bOnHandCancel').onclick=document.getElementById('bOnHandCancel2').onclick=()=>showDarienMenu();
@@ -1596,20 +1642,12 @@ async function showDailyOnHand(targetDate){
     showLoading();
     if(record.updated_at) await saveSnapshot('darien_daily_onhand', date, record.counts||{}, date+' — before update');
     await sb.from('darien_daily_onhand').upsert({date, counts, updated_by:updatedBy, updated_at:new Date().toISOString()}, {onConflict:'date'});
-    showDarienMenu();
+    if(!isToday){ showDarienCountsMenu(); return; }
+    showModal('Count saved', 'Do you want to convert this into your order?', [
+      {l:'No',c:'B-outline',fn:()=>{ closeModal(); showDarienCountsMenu(); }},
+      {l:'Yes',c:'B-red',fn:()=>{ closeModal(); showOrderReview(counts, updatedBy, date, darienPars); }},
+    ]);
   };
-
-  if(document.getElementById('bUpdateOrder')){
-    document.getElementById('bUpdateOrder').onclick=async ()=>{
-      const onHandCounts=readOnHandInputs();
-      const updatedBy=document.getElementById('onhandName').value.trim();
-      showLoading();
-      // Save the on-hand entry first.
-      if(record.updated_at) await saveSnapshot('darien_daily_onhand', date, record.counts||{}, date+' — before update');
-      await sb.from('darien_daily_onhand').upsert({date, counts:onHandCounts, updated_by:updatedBy, updated_at:new Date().toISOString()}, {onConflict:'date'});
-      showOrderReview(onHandCounts, updatedBy, date, darienPars);
-    };
-  }
 }
 
 function printDailyOnHandSheet(date, name, counts, darienPars){
@@ -1760,7 +1798,11 @@ function showOrderReview(onHandCounts, updatedBy, date, darienPars){
       const {data:created}=await sb.from(TABLE).insert({location:'darien', week_label:weekLabel, counter_name:certName, counts:orderCounts, status:'completed', started_at:new Date().toISOString(), completed_at:new Date().toISOString()}).select().single();
       await logActivity(created.id, weekLabel, 'placed', `Order certified and generated from on-hand by ${certName} (Par − On-Hand)`, certName);
     }
-    showDarienMenu();
+    const printItems=ALL_ITEMS.filter(item=>darienPars[item.id]!=null && !item.callInOnly).map(item=>({item, ordered:orderCounts[item.id], par:darienPars[item.id], onHand:onHandCounts[item.id]}));
+    showModal('Order submitted', `${weekLabel}'s order is in. Want to print it?`, [
+      {l:'Done',c:'B-outline',fn:()=>{ closeModal(); showDarienMenu(); }},
+      {l:'🖨 Print',c:'B-red',fn:()=>{ closeModal(); printOrderGuideSheet('DARIEN ORDER', weekLabel, printItems); showDarienMenu(); }},
+    ]);
   };
 }
 
@@ -3329,7 +3371,7 @@ function showCount(){
         return `<div class="ProdRow">
           <div class="ProdRow-info">
             <div class="ProdRow-name">${item.name}</div>
-            <div class="ProdRow-meta">${item.unit} · ${parTxt}</div>
+            <div class="ProdRow-meta">${item.unit} · ${parTxt}${currentDarienAvg[item.id]!=null?' · avg '+currentDarienAvg[item.id]+'/wk':''}</div>
           </div>
           <div class="DualInput">
             <div class="IG"><label style="color:#999;">On-Hand</label>
