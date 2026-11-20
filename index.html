@@ -125,7 +125,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const TABLE = 'prep_counts';
 
 // ─── ITEM DATA ───────────────────────────────────────────────────────────────
-const APP_VERSION = '29.0';
+const APP_VERSION = '29.1';
 
 // mult = how many baseUnit are in ONE counted container (bag/bucket/group)
 // baseUnit = the real-world unit that mult converts into, for on-hand totals
@@ -374,8 +374,7 @@ async function getDarienAllocatedMap(){
   // (Mon-Sun), i.e. has the real order already come in? If not (e.g. it's
   // Saturday and Sunday's order hasn't been placed yet), there's no real
   // number to use yet - fall back to an estimate instead.
-  const thisDarienMonday = mondayOf(new Date()).getTime();
-  const orderIsCurrent = latestD && latestD.length && mondayOf(new Date(latestD[0].started_at)).getTime()===thisDarienMonday;
+  const orderIsCurrent = latestD && latestD.length && latestD[0].week_label===darienWeekLabelNow();
 
   // Always compute the estimate as a fallback - used either for the whole
   // map (no current order at all) or per-item (an item that's already been
@@ -443,13 +442,19 @@ function mondayOf(d){
 // but an order placed on Sunday is for the upcoming week, not that one).
 // Anything picked Mon–Sat just falls in its own normal Mon–Sun week.
 function targetMondayForDarienOrder(picked){
-  if(picked.getDay()===0){
-    const nextMon=new Date(picked);
-    nextMon.setHours(0,0,0,0);
-    nextMon.setDate(nextMon.getDate()+1);
+  // Order day is Friday: Fri, Sat and Sun orders are all for the week that
+  // starts the NEXT Monday. Mon-Thu falls in its own Mon-Sun week (late
+  // orders / corrections for the week already underway).
+  const day=picked.getDay();
+  if(day===0 || day>=5){
+    const nextMon=mondayOf(picked);
+    nextMon.setDate(nextMon.getDate()+7);
     return nextMon;
   }
   return mondayOf(picked);
+}
+function darienWeekLabelNow(){
+  return 'Week of '+targetMondayForDarienOrder(new Date()).toLocaleDateString('en-US',{month:'short',day:'numeric'});
 }
 function mostRecentSunday(d){
   const sun=new Date(d);
@@ -1046,9 +1051,8 @@ async function goToCounting(lk){
     // same week, that's the real order - just show it directly instead of
     // silently loading a stale/blank draft that would hide it.
     if(lk==='darien'){
-      const draftWeek=weekNumberForDate(new Date(draft.started_at));
-      const {data:completed}=await sb.from(TABLE).select('id').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
-      const hasCompletedSameWeek = completed && completed.length && weekNumberForDate(new Date(completed[0].completed_at))===draftWeek;
+      const {data:completed}=await sb.from(TABLE).select('id,week_label').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
+      const hasCompletedSameWeek = completed && completed.length && completed[0].week_label===draft.week_label;
       if(hasCompletedSameWeek){
         showDarienOrderStatus(false);
         return;
@@ -1061,9 +1065,8 @@ async function goToCounting(lk){
     // process). Place Order should just show that order directly - not
     // pretend nothing's there and offer to start a duplicate.
     if(lk==='darien'){
-      const curWeek=currentWeekNumber();
-      const {data:completed}=await sb.from(TABLE).select('id').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
-      const hasCompletedCurrentWeek = completed && completed.length && weekNumberForDate(new Date(completed[0].completed_at))===curWeek;
+      const {data:completed}=await sb.from(TABLE).select('id,week_label').eq('location','darien').eq('status','completed').order('completed_at',{ascending:false}).limit(1);
+      const hasCompletedCurrentWeek = completed && completed.length && completed[0].week_label===darienWeekLabelNow();
       if(hasCompletedCurrentWeek){
         showDarienOrderStatus(false);
         return;
@@ -1795,7 +1798,7 @@ function showOrderReview(onHandCounts, updatedBy, date, darienPars){
       await sb.from(TABLE).update({counts:orderCounts, counter_name:certName, acknowledged:false, acknowledged_at:null}).eq('id',existingOrder[0].id);
       await logActivity(existingOrder[0].id, weekLabel, 'edited', `Order certified and updated from on-hand by ${certName} (Par − On-Hand)`, certName);
     } else {
-      const {data:created}=await sb.from(TABLE).insert({location:'darien', week_label:weekLabel, counter_name:certName, counts:orderCounts, status:'completed', started_at:new Date().toISOString(), completed_at:new Date().toISOString()}).select().single();
+      const {data:created}=await sb.from(TABLE).insert({location:'darien', week_label:weekLabel, counter_name:certName, counts:orderCounts, status:'completed', started_at:targetMondayForDarienOrder(new Date()).toISOString(), completed_at:new Date().toISOString()}).select().single();
       await logActivity(created.id, weekLabel, 'placed', `Order certified and generated from on-hand by ${certName} (Par − On-Hand)`, certName);
     }
     const printItems=ALL_ITEMS.filter(item=>darienPars[item.id]!=null && !item.callInOnly).map(item=>({item, ordered:orderCounts[item.id], par:darienPars[item.id], onHand:onHandCounts[item.id]}));
@@ -1998,9 +2001,8 @@ function deliveryRow(item, remaining, deliveredQty, source, recordId){
 // that stays Westmont-only.
 async function showDarienOrderStatus(editMode){
   showLoading();
-  const curWeek=currentWeekNumber();
   const {data}=await sb.from(TABLE).select('*').eq('location','darien').order('started_at',{ascending:false}).limit(5);
-  const order=(data||[]).find(r=>weekNumberForDate(new Date(r.started_at))===curWeek);
+  const order=(data||[]).find(r=>r.week_label===darienWeekLabelNow()) || (data||[])[0];
   const darienPars=await loadPars('darien');
   const ohCounts=editMode?{}:await getOnHandForOrder(order);
   const ohCell=id=>{const v=ohCounts[id]; return (v===undefined||v==='')?'—':v;};
@@ -3283,10 +3285,10 @@ function showSetupModal(lk){
   const el=document.createElement('div');
   el.className='Overlay'; el.id='modal';
   const isDarien = lk==='darien';
-  const defaultDate = isDarien ? mostRecentSunday(new Date()) : mondayOf(new Date());
-  const isoDefault=defaultDate.toISOString().slice(0,10);
+  const defaultDate = isDarien ? new Date() : mondayOf(new Date());
+  const isoDefault=defaultDate.getFullYear()+'-'+String(defaultDate.getMonth()+1).padStart(2,'0')+'-'+String(defaultDate.getDate()).padStart(2,'0'); // local date, not UTC
   const fieldLabel = isDarien
-    ? "Order received on (usually a Sunday — that Sunday's order is for the following week)"
+    ? "Order placed on (usually a Friday — Fri/Sat/Sun orders are for the following week)"
     : "Week (pick any day — snaps to that week's Monday)";
   el.innerHTML = `<div class="Modal">
     <div class="Modal-title">${testMode?'🧪 ':''}Start counting — ${l.name}${testMode?' (test)':''}</div>
@@ -3310,7 +3312,7 @@ function showSetupModal(lk){
     const picked=new Date(raw+'T00:00:00');
     const mon=isDarien ? targetMondayForDarienOrder(picked) : mondayOf(picked);
     const wk=weekNumberForDate(mon);
-    const sundayNote = isDarien && picked.getDay()===0 ? ' (Sunday order → following week)' : '';
+    const sundayNote = isDarien && (picked.getDay()===0||picked.getDay()>=5) ? ' (Fri–Sun order → following week)' : '';
     preview.textContent = 'Week '+wk+' · '+weekRangeLabel(wk)+sundayNote;
   }
   document.getElementById('setupWeekDate').oninput=updateWeekPreview;
